@@ -104,18 +104,13 @@ def main():
             break
         print("Please enter 1 or 2")
 
+    role = "admin" if is_admin else "user"
     role_name = "Admin" if is_admin else "Regular User"
     print(f"\nCreating {role_name}")
     print("-" * 60)
 
     # Collect user information
     email = get_input("Email address")
-    password = get_input("Password (min 8 characters)")
-
-    # Confirm password length
-    if len(password) < 8:
-        print("\n✗ Error: Password must be at least 8 characters")
-        sys.exit(1)
 
     print()
     print("-" * 60)
@@ -124,6 +119,7 @@ def main():
     print(f"  Email: {email}")
     print(f"  Role: {role_name}")
     print("-" * 60)
+    print("\nNote: User will set their own password via email verification.")
 
     # Confirm
     confirm = input("\nCreate this user? (y/n): ").strip().lower()
@@ -131,21 +127,17 @@ def main():
         print("Cancelled.")
         sys.exit(0)
 
-    # Select endpoint based on user type
-    if is_admin:
-        endpoint = f"{api_url}/api/admin/register"
-        headers = {
-            'X-API-Key': api_key,
-            'Content-Type': 'application/json'
-        }
-    else:
-        endpoint = f"{api_url}/api/auth/register"
-        headers = {'Content-Type': 'application/json'}
+    # Use admin register endpoint (user sets password via email)
+    endpoint = f"{api_url}/api/admin/register"
+    headers = {
+        'X-API-Key': api_key,
+        'Content-Type': 'application/json'
+    }
 
     user_data = {
         'site_id': selected_site['id'],
         'email': email,
-        'password': password
+        'role': role
     }
 
     # Make API request
@@ -164,9 +156,8 @@ def main():
             print(f"Verified: {user['is_verified']}")
             print(f"Created: {user['created_at']}")
             print("=" * 60)
-            if not user['is_verified']:
-                print("\nNote: User must verify their email before logging in.")
-                print("Check the email for a verification link.")
+            print("\nNote: User will receive an email to set their password and verify.")
+            print("They must complete this step before logging in.")
         else:
             print(f"\n✗ Error creating user (HTTP {response.status_code}):")
             print(response.json())
