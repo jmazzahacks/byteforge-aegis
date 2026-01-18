@@ -5,10 +5,10 @@ from marshmallow import Schema, fields, validate
 
 
 class RegisterRequestSchema(Schema):
-    """Schema for user registration request (self-registration with password)"""
+    """Schema for user registration request (password optional - can set via email verification)"""
     site_id = fields.Integer(required=True)
     email = fields.Email(required=True)
-    password = fields.String(required=True, validate=validate.Length(min=8))
+    password = fields.String(validate=validate.Length(min=8))  # Optional - if not provided, user sets via email
 
 
 class AdminRegisterRequestSchema(Schema):

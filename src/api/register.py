@@ -11,14 +11,15 @@ register_bp = Blueprint('register', __name__)
 
 @register_bp.route('/api/auth/register', methods=['POST'])
 @validate_request(RegisterRequestSchema)
-def register(validated_data):
+def register(validated_data: dict):
     """
     Register a new user.
 
     Request body:
         site_id: ID of the site
         email: User email
-        password: User password (min 8 characters)
+        password: Optional user password (min 8 characters)
+                  If not provided, user will set password via email verification
 
     Returns:
         201: User created successfully
@@ -28,7 +29,7 @@ def register(validated_data):
         user = auth_service.register_user(
             site_id=validated_data['site_id'],
             email=validated_data['email'],
-            password=validated_data['password']
+            password=validated_data.get('password')  # Optional - can be None
         )
         schema = UserResponseSchema()
         return jsonify(schema.dump(user)), 201

@@ -157,7 +157,34 @@ curl -X PUT http://localhost:5678/api/sites/{site_id} \
 
 ### User Management
 
-User management endpoints are scoped to sites and use bearer token authentication.
+User management endpoints are scoped to sites.
+
+#### Self-Registration (Public)
+
+Allow users to register themselves. Password is optional - if omitted, users set their password during email verification.
+
+```bash
+# With password (traditional flow)
+curl -X POST http://localhost:5678/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "site_id": 1,
+    "email": "user@example.com",
+    "password": "their-password"
+  }'
+
+# Without password (simpler UX - user sets password via email)
+curl -X POST http://localhost:5678/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "site_id": 1,
+    "email": "user@example.com"
+  }'
+```
+
+Both flows send a verification email. The difference:
+- **With password**: User clicks verification link → email verified → can login immediately
+- **Without password**: User clicks verification link → sets password → email verified → can login
 
 #### Admin User Registration
 
