@@ -5,6 +5,7 @@ Multi-tenant authentication service built with Flask and PostgreSQL. Provides se
 ## Features
 
 - **Multi-tenant Architecture** - Isolate users and authentication by site/domain
+- **Per-Site Registration Control** - Enable or disable self-registration per tenant
 - **User Management** - Registration, login, email verification
 - **Centralized Email Verification** - Single verification page handles all tenants with configurable redirect
 - **Password Management** - Password changes, reset via email
@@ -104,11 +105,14 @@ curl -X POST http://localhost:5678/api/sites \
     "frontend_url": "https://example.com",
     "verification_redirect_url": "https://example.com/welcome",
     "email_from": "noreply@example.com",
-    "email_from_name": "My Website"
+    "email_from_name": "My Website",
+    "allow_self_registration": true
   }'
 ```
 
-Note: `verification_redirect_url` is optional. If not set, users will be redirected to `frontend_url` after email verification.
+**Optional fields:**
+- `verification_redirect_url` - If not set, users redirect to `frontend_url` after email verification
+- `allow_self_registration` - Defaults to `true`. Set to `false` to disable public registration (admin registration still works)
 
 #### List All Sites
 
@@ -155,6 +159,16 @@ curl -X PUT http://localhost:5678/api/sites/{site_id} \
   }'
 ```
 
+**Disable self-registration for a site:**
+```bash
+curl -X PUT http://localhost:5678/api/sites/{site_id} \
+  -H "X-API-Key: your-master-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"allow_self_registration": false}'
+```
+
+When disabled, `/api/auth/register` returns an error. Admin registration via `/api/admin/register` is unaffected.
+
 ### User Management
 
 User management endpoints are scoped to sites.
@@ -162,6 +176,8 @@ User management endpoints are scoped to sites.
 #### Self-Registration (Public)
 
 Allow users to register themselves. Password is optional - if omitted, users set their password during email verification.
+
+**Note:** This endpoint can be disabled per site by setting `allow_self_registration: false` on the site. When disabled, returns `400 {"error": "Self-registration is not enabled for this site"}`.
 
 ```bash
 # With password (traditional flow)
