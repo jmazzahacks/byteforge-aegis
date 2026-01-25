@@ -42,7 +42,8 @@ def admin_register(validated_data: dict):
             site_id=validated_data['site_id'],
             email=validated_data['email'],
             password=None,  # User will set password via email verification
-            role=role
+            role=role,
+            is_admin_registration=True  # Bypass allow_self_registration check
         )
         schema = UserResponseSchema()
         return jsonify(schema.dump(user)), 201

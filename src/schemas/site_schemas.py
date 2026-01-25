@@ -12,6 +12,7 @@ class CreateSiteRequestSchema(Schema):
     verification_redirect_url = fields.Url(required=False, allow_none=True)
     email_from = fields.Email(required=True)
     email_from_name = fields.String(required=True, validate=validate.Length(min=1, max=255))
+    allow_self_registration = fields.Boolean(load_default=True)
 
 
 class UpdateSiteRequestSchema(Schema):
@@ -22,6 +23,7 @@ class UpdateSiteRequestSchema(Schema):
     verification_redirect_url = fields.Url(required=False, allow_none=True)
     email_from = fields.Email(required=False)
     email_from_name = fields.String(required=False, validate=validate.Length(min=1, max=255))
+    allow_self_registration = fields.Boolean(required=False)
 
 
 class SiteResponseSchema(Schema):
@@ -35,3 +37,4 @@ class SiteResponseSchema(Schema):
     email_from_name = fields.String()
     created_at = fields.Integer()
     updated_at = fields.Integer()
+    allow_self_registration = fields.Boolean()

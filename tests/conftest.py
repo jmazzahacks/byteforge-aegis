@@ -3,6 +3,9 @@ import time
 import os
 import sys
 
+# Set test database BEFORE importing any modules that use it
+os.environ['DB_NAME'] = 'aegis_test'
+
 # Add src to path so we can import our modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
@@ -12,13 +15,6 @@ from models.user import User
 from models.user_role import UserRole
 from models.auth_token import AuthToken
 from app import create_app
-
-
-@pytest.fixture(scope='session', autouse=True)
-def setup_test_environment():
-    """Set environment to use test database"""
-    os.environ['DB_NAME'] = 'auth_service_test'
-    yield
 
 
 @pytest.fixture(scope='function')

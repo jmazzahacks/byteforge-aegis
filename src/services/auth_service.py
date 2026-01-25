@@ -17,7 +17,14 @@ logger = logging.getLogger(__name__)
 class AuthService:
     """Service for user authentication and account management"""
 
-    def register_user(self, site_id: int, email: str, password: Optional[str], role: UserRole = UserRole.USER) -> User:
+    def register_user(
+        self,
+        site_id: int,
+        email: str,
+        password: Optional[str],
+        role: UserRole = UserRole.USER,
+        is_admin_registration: bool = False
+    ) -> User:
         """
         Register a new user account for a specific site.
 
@@ -29,13 +36,22 @@ class AuthService:
             email: The user's email address
             password: The user's plain text password (None for admin-created users who will set password via email)
             role: The user's role (defaults to USER)
+            is_admin_registration: If True, bypasses allow_self_registration check (for admin-created users)
 
         Returns:
             User: The created user model
 
         Raises:
-            ValueError: If email already exists for this site
+            ValueError: If email already exists for this site, or if self-registration is disabled
         """
+        # Check if self-registration is allowed for this site (unless admin registration)
+        if not is_admin_registration:
+            site = db_manager.find_site_by_id(site_id)
+            if not site:
+                raise ValueError("Site not found")
+            if not site.allow_self_registration:
+                raise ValueError("Self-registration is not enabled for this site")
+
         # Check if email already exists for this site
         existing_user = db_manager.find_user_by_email(site_id, email)
         if existing_user:

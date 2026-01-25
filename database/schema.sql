@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS sites (
     email_from VARCHAR(255) NOT NULL,
     email_from_name VARCHAR(255) NOT NULL,
     created_at BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL
+    updated_at BIGINT NOT NULL,
+    allow_self_registration BOOLEAN DEFAULT TRUE NOT NULL
 );
 
 CREATE INDEX idx_sites_domain ON sites(domain);

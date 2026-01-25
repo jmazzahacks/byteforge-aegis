@@ -25,7 +25,7 @@ def list_sites():
     with db_manager.get_cursor() as cursor:
         cursor.execute(
             """
-            SELECT id, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at
+            SELECT id, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration
             FROM sites
             ORDER BY created_at DESC
             """

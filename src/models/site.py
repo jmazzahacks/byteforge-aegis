@@ -20,6 +20,7 @@ class Site:
         email_from_name: Display name for emails sent from this site
         created_at: Unix timestamp when the site was created
         updated_at: Unix timestamp when the site was last updated
+        allow_self_registration: Whether public self-registration is enabled for this site
     """
     id: int
     name: str
@@ -30,6 +31,7 @@ class Site:
     created_at: int
     updated_at: int
     verification_redirect_url: Optional[str] = None
+    allow_self_registration: bool = True
 
     def get_verification_redirect_url(self) -> str:
         """Get the URL to redirect to after email verification"""
@@ -46,7 +48,8 @@ class Site:
             'email_from': self.email_from,
             'email_from_name': self.email_from_name,
             'created_at': self.created_at,
-            'updated_at': self.updated_at
+            'updated_at': self.updated_at,
+            'allow_self_registration': self.allow_self_registration
         }
 
     @classmethod
@@ -61,5 +64,6 @@ class Site:
             email_from=data['email_from'],
             email_from_name=data['email_from_name'],
             created_at=data['created_at'],
-            updated_at=data['updated_at']
+            updated_at=data['updated_at'],
+            allow_self_registration=data.get('allow_self_registration', True)
         )
