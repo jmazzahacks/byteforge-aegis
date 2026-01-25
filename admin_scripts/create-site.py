@@ -63,6 +63,13 @@ def main():
     if verification_redirect:
         site_data['verification_redirect_url'] = verification_redirect
 
+    # Optional: self-registration setting
+    print()
+    print("Self-registration allows users to register via the public /api/auth/register endpoint.")
+    print("Disabling it means users can only be created by admins.")
+    allow_self_reg = get_input("Allow self-registration? (y/n)", "y")
+    site_data['allow_self_registration'] = allow_self_reg.lower() in ('y', 'yes')
+
     print()
     print("-" * 60)
     print("Site details to create:")
@@ -99,6 +106,8 @@ def main():
             print(f"Frontend URL: {site['frontend_url']}")
             if site.get('verification_redirect_url'):
                 print(f"Verification Redirect: {site['verification_redirect_url']}")
+            self_reg = "Enabled" if site.get('allow_self_registration', True) else "Disabled"
+            print(f"Self-Registration: {self_reg}")
             print(f"Email From: {site['email_from_name']} <{site['email_from']}>")
             print(f"Created: {site['created_at']}")
             print("=" * 60)
