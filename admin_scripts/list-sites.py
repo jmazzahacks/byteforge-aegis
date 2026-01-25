@@ -65,6 +65,8 @@ def main():
                 print(f"  Frontend URL: {site['frontend_url']}")
                 redirect_url = site.get('verification_redirect_url') or '(not set)'
                 print(f"  Verify Redirect: {redirect_url}")
+                self_reg = "Enabled" if site.get('allow_self_registration', True) else "Disabled"
+                print(f"  Self-Registration: {self_reg}")
                 print(f"  Email From:   {site['email_from_name']} <{site['email_from']}>")
                 print(f"  Created:      {site['created_at']}")
 
