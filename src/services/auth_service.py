@@ -208,19 +208,26 @@ class AuthService:
         Raises:
             ValueError: If token is invalid/expired, or password required but not provided
         """
-        user_id = token_service.validate_email_verification_token(token)
+        # First, check the token without consuming it
+        user_id = token_service.check_email_verification_token(token)
         if not user_id:
             raise ValueError("Invalid or expired verification token")
 
-        # Update user verification status
+        # Get user to check if password is required
         user = db_manager.find_user_by_id(user_id)
         if not user:
             raise ValueError("User not found")
 
-        # Check if password is required (admin-created users without password)
+        # Check if password is required BEFORE consuming the token
         if user.password_hash is None:
             if not password:
                 raise ValueError("Password is required to complete account setup")
+
+        # Now consume the token (one-time use)
+        token_service.validate_email_verification_token(token)
+
+        # Set password if provided (for admin-created users)
+        if user.password_hash is None:
             user.password_hash = password_service.hash_password(password)
 
         # Get site info for redirect URL
