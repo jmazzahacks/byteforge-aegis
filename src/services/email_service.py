@@ -101,6 +101,7 @@ class EmailService:
         to_email: str,
         token: str,
         site_name: str,
+        frontend_url: str,
         from_email: str,
         from_name: str
     ) -> bool:
@@ -111,14 +112,16 @@ class EmailService:
             to_email: User's email address
             token: Verification token
             site_name: Name of the site
+            frontend_url: Frontend URL for this site (verification happens here)
             from_email: Sender email address (site-specific)
             from_name: Sender display name (site-specific)
 
         Returns:
             bool: True if sent successfully
         """
-        # Use centralized Aegis frontend URL for verification
-        verification_url = f"{self.aegis_frontend_url}/verify-email?token={token}"
+        # Use site's frontend URL for verification (tenant handles verification)
+        base_url = frontend_url.rstrip('/')
+        verification_url = f"{base_url}/verify-email?token={token}"
 
         subject = f"Verify your email for {site_name}"
 

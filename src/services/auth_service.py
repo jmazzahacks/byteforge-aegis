@@ -106,6 +106,7 @@ class AuthService:
                 to_email=user.email,
                 token=verification_token.token,
                 site_name=site.name,
+                frontend_url=site.frontend_url,
                 from_email=site.email_from,
                 from_name=site.email_from_name
             )
@@ -277,6 +278,7 @@ class AuthService:
             to_email=user.email,
             token=verification_token.token,
             site_name=site.name,
+            frontend_url=site.frontend_url,
             from_email=site.email_from,
             from_name=site.email_from_name
         )
