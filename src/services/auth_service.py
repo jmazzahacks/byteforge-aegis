@@ -24,38 +24,60 @@ class AuthService:
         password: Optional[str],
         role: UserRole = UserRole.USER,
         is_admin_registration: bool = False
-    ) -> User:
+    ) -> Optional[User]:
         """
         Register a new user account for a specific site.
 
         Creates a new user and generates an email verification token.
         The user is not verified by default.
 
+        If email already exists (for self-registration), sends a notification
+        email instead and returns None. This prevents email enumeration attacks.
+
         Args:
             site_id: The ID of the site to register the user for
             email: The user's email address
             password: The user's plain text password (None for admin-created users who will set password via email)
             role: The user's role (defaults to USER)
-            is_admin_registration: If True, bypasses allow_self_registration check (for admin-created users)
+            is_admin_registration: If True, bypasses allow_self_registration check and
+                                   raises error for duplicate emails (for admin-created users)
 
         Returns:
-            User: The created user model
+            User: The created user model, or None if email already exists (self-registration only)
 
         Raises:
-            ValueError: If email already exists for this site, or if self-registration is disabled
+            ValueError: If site not found, self-registration disabled, or
+                        duplicate email (admin registration only)
         """
+        # Get site info first - needed for all paths
+        site = db_manager.find_site_by_id(site_id)
+        if not site:
+            raise ValueError("Site not found")
+
         # Check if self-registration is allowed for this site (unless admin registration)
         if not is_admin_registration:
-            site = db_manager.find_site_by_id(site_id)
-            if not site:
-                raise ValueError("Site not found")
             if not site.allow_self_registration:
                 raise ValueError("Self-registration is not enabled for this site")
 
         # Check if email already exists for this site
         existing_user = db_manager.find_user_by_email(site_id, email)
         if existing_user:
-            raise ValueError("Email already registered for this site")
+            if is_admin_registration:
+                # Admin registration should know if email exists
+                raise ValueError("Email already registered for this site")
+            else:
+                # Self-registration: send notification email, don't reveal email exists
+                try:
+                    email_service.send_registration_attempt_email(
+                        to_email=email,
+                        site_name=site.name,
+                        frontend_url=site.frontend_url,
+                        from_email=site.email_from,
+                        from_name=site.email_from_name
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to send registration attempt email: {str(e)}")
+                return None
 
         # Hash password if provided
         password_hash = password_service.hash_password(password) if password else None
@@ -78,20 +100,17 @@ class AuthService:
         # Create email verification token
         verification_token = token_service.create_email_verification_token(site_id, user.id)
 
-        # Get site info for email
-        site = db_manager.find_site_by_id(site_id)
-        if site:
-            # Send verification email (don't fail if email fails)
-            try:
-                email_service.send_verification_email(
-                    to_email=user.email,
-                    token=verification_token.token,
-                    site_name=site.name,
-                    from_email=site.email_from,
-                    from_name=site.email_from_name
-                )
-            except Exception as e:
-                logger.error(f"Failed to send verification email: {str(e)}")
+        # Send verification email (don't fail if email fails)
+        try:
+            email_service.send_verification_email(
+                to_email=user.email,
+                token=verification_token.token,
+                site_name=site.name,
+                from_email=site.email_from,
+                from_name=site.email_from_name
+            )
+        except Exception as e:
+            logger.error(f"Failed to send verification email: {str(e)}")
 
         return user
 

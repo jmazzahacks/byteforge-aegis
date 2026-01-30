@@ -268,5 +268,68 @@ class EmailService:
         return self.send_email(to_email, subject, html_content, from_email, from_name, text_content)
 
 
+    def send_registration_attempt_email(
+        self,
+        to_email: str,
+        site_name: str,
+        frontend_url: str,
+        from_email: str,
+        from_name: str
+    ) -> bool:
+        """
+        Send notification when someone attempts to register with an existing email.
+
+        This is a security measure to prevent email enumeration while still
+        notifying the legitimate account owner.
+
+        Args:
+            to_email: Existing user's email address
+            site_name: Name of the site
+            frontend_url: Frontend URL for this site
+            from_email: Sender email address (site-specific)
+            from_name: Sender display name (site-specific)
+
+        Returns:
+            bool: True if sent successfully
+        """
+        base_url = frontend_url.rstrip('/')
+        login_url = f"{base_url}/login"
+        reset_url = f"{base_url}/forgot-password"
+
+        subject = f"Sign-in attempt for {site_name}"
+
+        html_content = f"""
+        <html>
+            <body>
+                <h2>Account Already Exists</h2>
+                <p>Someone attempted to create a new account on {site_name} using this email address.</p>
+                <p>If this was you and you forgot you already have an account, you can:</p>
+                <ul>
+                    <li><a href="{login_url}">Sign in to your existing account</a></li>
+                    <li><a href="{reset_url}">Reset your password</a> if you've forgotten it</li>
+                </ul>
+                <p>If this wasn't you, someone may have mistyped their email address. No action is needed.</p>
+                <p>Your account remains secure and unchanged.</p>
+            </body>
+        </html>
+        """
+
+        text_content = f"""
+        Account Already Exists
+
+        Someone attempted to create a new account on {site_name} using this email address.
+
+        If this was you and you forgot you already have an account, you can:
+        - Sign in: {login_url}
+        - Reset password: {reset_url}
+
+        If this wasn't you, someone may have mistyped their email address. No action is needed.
+
+        Your account remains secure and unchanged.
+        """
+
+        return self.send_email(to_email, subject, html_content, from_email, from_name, text_content)
+
+
 # Singleton instance
 email_service = EmailService()

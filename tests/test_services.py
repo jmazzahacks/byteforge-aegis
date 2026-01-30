@@ -83,18 +83,38 @@ def test_register_user(sample_site):
 
 
 def test_register_duplicate_email(sample_site):
-    """Test that duplicate emails are rejected for the same site"""
+    """Test that duplicate emails return None for self-registration (prevents enumeration)"""
     auth_service.register_user(
         site_id=sample_site.id,
         email="duplicate@example.com",
         password="password1"
     )
 
+    # Self-registration with duplicate email should return None (not raise error)
+    # This prevents email enumeration attacks
+    result = auth_service.register_user(
+        site_id=sample_site.id,
+        email="duplicate@example.com",
+        password="password2"
+    )
+    assert result is None
+
+
+def test_register_duplicate_email_admin(sample_site):
+    """Test that admin registration raises error for duplicate emails"""
+    auth_service.register_user(
+        site_id=sample_site.id,
+        email="admin_dup@example.com",
+        password="password1"
+    )
+
+    # Admin registration should still raise error for duplicate
     try:
         auth_service.register_user(
             site_id=sample_site.id,
-            email="duplicate@example.com",
-            password="password2"
+            email="admin_dup@example.com",
+            password="password2",
+            is_admin_registration=True
         )
         assert False, "Should have raised ValueError"
     except ValueError as e:
