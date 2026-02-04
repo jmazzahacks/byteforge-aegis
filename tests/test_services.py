@@ -137,14 +137,16 @@ def test_login_success(sample_site):
     db_manager.update_user(user)
 
     # Login
-    auth_token = auth_service.login(
+    login_result = auth_service.login(
         site_id=sample_site.id,
         email="login@example.com",
         password="mypassword"
     )
 
-    assert auth_token.token is not None
-    assert auth_token.user_id == user.id
+    assert login_result.auth_token.token is not None
+    assert login_result.auth_token.user_id == user.id
+    assert login_result.refresh_token is not None
+    assert login_result.refresh_token.user_id == user.id
 
 
 def test_login_wrong_password(sample_site):

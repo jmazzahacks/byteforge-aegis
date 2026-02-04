@@ -14,6 +14,7 @@ Multi-tenant authentication service built with Flask and PostgreSQL. Provides se
 - **API Key Authentication** - Master API key for administrative operations
 - **Email Integration** - Mailgun integration for transactional emails
 - **Token-Based Sessions** - Secure authentication tokens with expiration
+- **Refresh Tokens** - Long-lived refresh tokens for seamless session extension
 - **PostgreSQL Backend** - Reliable data storage with proper indexing
 
 ## Requirements
@@ -168,6 +169,28 @@ curl -X PUT http://localhost:5678/api/sites/{site_id} \
 ```
 
 When disabled, `/api/auth/register` returns an error. Admin registration via `/api/admin/register` is unaffected.
+
+### Authentication
+
+#### Login
+
+```bash
+curl -X POST http://localhost:5678/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"site_id": 1, "email": "user@example.com", "password": "password"}'
+```
+
+Returns both `auth_token` (1 hour) and `refresh_token` (7 days).
+
+#### Refresh Token
+
+```bash
+curl -X POST http://localhost:5678/api/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refresh_token": "..."}'
+```
+
+Returns new `auth_token` and rotated `refresh_token`. Token rotation detects theft by revoking all tokens if a used token is reused after the grace period.
 
 ### User Management
 
@@ -479,6 +502,9 @@ EMAIL_FROM_NAME=ByteForge Aegis
 CORS_ORIGINS=*
 AUTH_TOKEN_EXPIRATION=3600
 EMAIL_VERIFICATION_EXPIRATION=86400
+REFRESH_TOKEN_EXPIRATION=604800
+REFRESH_TOKEN_ROTATION=true
+REFRESH_TOKEN_GRACE_PERIOD=30
 ```
 
 See `.env.docker.example` for complete configuration template.

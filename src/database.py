@@ -286,6 +286,7 @@ class DatabaseManager:
         with self.get_cursor(commit=True) as cursor:
             # Delete related tokens first (foreign key constraints)
             cursor.execute("DELETE FROM auth_tokens WHERE user_id = %s", (user_id,))
+            cursor.execute("DELETE FROM refresh_tokens WHERE user_id = %s", (user_id,))
             cursor.execute("DELETE FROM email_verification_tokens WHERE user_id = %s", (user_id,))
             cursor.execute("DELETE FROM password_reset_tokens WHERE user_id = %s", (user_id,))
             cursor.execute("DELETE FROM email_change_requests WHERE user_id = %s", (user_id,))
@@ -375,6 +376,134 @@ class DatabaseManager:
         """
         with self.get_cursor(commit=True) as cursor:
             cursor.execute("DELETE FROM auth_tokens WHERE expires_at < %s", (current_time,))
+            return cursor.rowcount
+
+    # RefreshToken operations
+    def create_refresh_token(self, refresh_token: 'RefreshToken') -> 'RefreshToken':
+        """
+        Create a new refresh token in the database.
+
+        Args:
+            refresh_token: RefreshToken model with all fields
+
+        Returns:
+            RefreshToken: The created refresh token
+        """
+        with self.get_cursor(commit=True) as cursor:
+            cursor.execute(
+                """
+                INSERT INTO refresh_tokens (site_id, user_id, token, family_id, expires_at, created_at, used_at, revoked)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (refresh_token.site_id, refresh_token.user_id, refresh_token.token,
+                 refresh_token.family_id, refresh_token.expires_at, refresh_token.created_at,
+                 refresh_token.used_at, refresh_token.revoked)
+            )
+        return refresh_token
+
+    def find_refresh_token_by_token(self, token: str) -> Optional['RefreshToken']:
+        """
+        Find a refresh token by its token string.
+
+        Args:
+            token: The token string to search for
+
+        Returns:
+            Optional[RefreshToken]: The refresh token if found, None otherwise
+        """
+        from models.refresh_token import RefreshToken
+
+        with self.get_cursor() as cursor:
+            cursor.execute(
+                """SELECT site_id, user_id, token, family_id, expires_at, created_at, used_at, revoked
+                   FROM refresh_tokens WHERE token = %s""",
+                (token,)
+            )
+            row = cursor.fetchone()
+            return RefreshToken.from_dict(row) if row else None
+
+    def mark_refresh_token_used(self, token: str, used_at: int) -> bool:
+        """
+        Mark a refresh token as used with timestamp.
+
+        Args:
+            token: The token string to mark as used
+            used_at: Unix timestamp when the token was used
+
+        Returns:
+            bool: True if updated, False if not found
+        """
+        with self.get_cursor(commit=True) as cursor:
+            cursor.execute(
+                "UPDATE refresh_tokens SET used_at = %s WHERE token = %s",
+                (used_at, token)
+            )
+            return cursor.rowcount > 0
+
+    def revoke_refresh_token_family(self, family_id: str) -> int:
+        """
+        Revoke all tokens in a family (for theft detection).
+
+        Args:
+            family_id: The family ID to revoke
+
+        Returns:
+            int: Number of tokens revoked
+        """
+        with self.get_cursor(commit=True) as cursor:
+            cursor.execute(
+                "UPDATE refresh_tokens SET revoked = TRUE WHERE family_id = %s",
+                (family_id,)
+            )
+            return cursor.rowcount
+
+    def find_latest_refresh_token_in_family(self, family_id: str) -> Optional['RefreshToken']:
+        """
+        Find the most recently created refresh token in a family.
+
+        Args:
+            family_id: The family ID to search for
+
+        Returns:
+            Optional[RefreshToken]: The most recent token in the family, None if none found
+        """
+        from models.refresh_token import RefreshToken
+
+        with self.get_cursor() as cursor:
+            cursor.execute(
+                """SELECT site_id, user_id, token, family_id, expires_at, created_at, used_at, revoked
+                   FROM refresh_tokens WHERE family_id = %s ORDER BY created_at DESC LIMIT 1""",
+                (family_id,)
+            )
+            row = cursor.fetchone()
+            return RefreshToken.from_dict(row) if row else None
+
+    def delete_refresh_tokens_by_user(self, user_id: int) -> int:
+        """
+        Delete all refresh tokens for a user.
+
+        Args:
+            user_id: The user's ID
+
+        Returns:
+            int: Number of tokens deleted
+        """
+        with self.get_cursor(commit=True) as cursor:
+            cursor.execute("DELETE FROM refresh_tokens WHERE user_id = %s", (user_id,))
+            return cursor.rowcount
+
+    def delete_expired_refresh_tokens(self, current_time: int) -> int:
+        """
+        Delete all expired refresh tokens.
+
+        Args:
+            current_time: Unix timestamp to compare against
+
+        Returns:
+            int: Number of tokens deleted
+        """
+        with self.get_cursor(commit=True) as cursor:
+            cursor.execute("DELETE FROM refresh_tokens WHERE expires_at < %s", (current_time,))
             return cursor.rowcount
 
     # EmailVerificationToken operations

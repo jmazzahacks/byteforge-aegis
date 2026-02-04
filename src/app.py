@@ -33,6 +33,7 @@ def create_app() -> Flask:
     from api.admin_register import admin_register_bp
     from api.login import login_bp
     from api.logout import logout_bp
+    from api.refresh_token import refresh_token_bp
     from api.verify_email import verify_email_bp
     from api.check_verification_token import check_verification_token_bp
     from api.change_password import change_password_bp
@@ -53,6 +54,7 @@ def create_app() -> Flask:
     app.register_blueprint(admin_register_bp)
     app.register_blueprint(login_bp)
     app.register_blueprint(logout_bp)
+    app.register_blueprint(refresh_token_bp)
     app.register_blueprint(verify_email_bp)
     app.register_blueprint(check_verification_token_bp)
     app.register_blueprint(change_password_bp)

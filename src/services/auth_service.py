@@ -5,6 +5,7 @@ from database import db_manager
 from models.user import User
 from models.user_role import UserRole
 from models.auth_token import AuthToken
+from models.login_result import LoginResult
 from models.verification_result import VerificationResult
 from models.verification_token_status import VerificationTokenStatus
 from services.password_service import password_service
@@ -115,7 +116,7 @@ class AuthService:
 
         return user
 
-    def login(self, site_id: int, email: str, password: str) -> AuthToken:
+    def login(self, site_id: int, email: str, password: str) -> LoginResult:
         """
         Authenticate a user with email and password for a specific site.
 
@@ -125,7 +126,7 @@ class AuthService:
             password: The user's plain text password
 
         Returns:
-            AuthToken: The created auth token
+            LoginResult: Contains both auth token and refresh token
 
         Raises:
             ValueError: If credentials are invalid or email not verified
@@ -147,10 +148,11 @@ class AuthService:
         if not user.is_verified:
             raise ValueError("Email not verified")
 
-        # Create auth token
+        # Create auth token and refresh token
         auth_token = token_service.create_auth_token(site_id, user.id)
+        refresh_token = token_service.create_refresh_token(site_id, user.id)
 
-        return auth_token
+        return LoginResult(auth_token=auth_token, refresh_token=refresh_token)
 
     def logout(self, token: str) -> bool:
         """
@@ -163,6 +165,34 @@ class AuthService:
             bool: True if token was invalidated, False if not found
         """
         return token_service.invalidate_auth_token(token)
+
+    def refresh_auth_token(self, refresh_token_str: str) -> LoginResult:
+        """
+        Exchange a valid refresh token for a new auth token.
+
+        Args:
+            refresh_token_str: The refresh token string
+
+        Returns:
+            LoginResult: Contains new auth token and optionally rotated refresh token
+
+        Raises:
+            ValueError: If refresh token is invalid, expired, or reuse detected
+        """
+        result = token_service.validate_and_rotate_refresh_token(refresh_token_str)
+
+        if not result:
+            raise ValueError("Invalid or expired refresh token")
+
+        user = db_manager.find_user_by_id(result.user_id)
+        if not user:
+            raise ValueError("User not found")
+        if not user.is_verified:
+            raise ValueError("User account not verified")
+
+        auth_token = token_service.create_auth_token(result.site_id, result.user_id)
+
+        return LoginResult(auth_token=auth_token, refresh_token=result.new_refresh_token)
 
     def check_verification_token(self, token: str) -> VerificationTokenStatus:
         """
@@ -313,8 +343,9 @@ class AuthService:
         # Update user
         updated_user = db_manager.update_user(user)
 
-        # Invalidate all existing auth tokens for security
+        # Invalidate all existing tokens for security
         token_service.invalidate_user_tokens(user_id)
+        token_service.invalidate_user_refresh_tokens(user_id)
 
         return updated_user
 
@@ -383,8 +414,9 @@ class AuthService:
         # Update user
         updated_user = db_manager.update_user(user)
 
-        # Invalidate all existing auth tokens for security
+        # Invalidate all existing tokens for security
         token_service.invalidate_user_tokens(user_id)
+        token_service.invalidate_user_refresh_tokens(user_id)
 
         return updated_user
 

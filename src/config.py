@@ -31,6 +31,11 @@ class Config:
     PASSWORD_RESET_EXPIRATION: int = int(os.getenv('PASSWORD_RESET_EXPIRATION', 3600))
     EMAIL_CHANGE_EXPIRATION: int = int(os.getenv('EMAIL_CHANGE_EXPIRATION', 3600))
 
+    # Refresh Token Configuration
+    REFRESH_TOKEN_EXPIRATION: int = int(os.getenv('REFRESH_TOKEN_EXPIRATION', 604800))  # 7 days
+    REFRESH_TOKEN_ROTATION: bool = os.getenv('REFRESH_TOKEN_ROTATION', 'true').lower() == 'true'
+    REFRESH_TOKEN_GRACE_PERIOD: int = int(os.getenv('REFRESH_TOKEN_GRACE_PERIOD', 30))  # seconds
+
     # Application
     APP_HOST: str = os.getenv('APP_HOST', '0.0.0.0')
     APP_PORT: int = int(os.getenv('APP_PORT', 5678))

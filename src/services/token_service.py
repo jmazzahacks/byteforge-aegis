@@ -4,6 +4,8 @@ from typing import Optional
 from database import db_manager
 from config import get_config
 from models.auth_token import AuthToken
+from models.refresh_token import RefreshToken
+from models.refresh_token_result import RefreshTokenResult
 from models.email_verification_token import EmailVerificationToken
 from models.password_reset_token import PasswordResetToken
 from models.email_change_request import EmailChangeRequest
@@ -90,6 +92,115 @@ class TokenService:
             user_id: The ID of the user whose tokens should be invalidated
         """
         db_manager.delete_auth_tokens_by_user(user_id)
+
+    def create_refresh_token(self, site_id: int, user_id: int, family_id: Optional[str] = None) -> RefreshToken:
+        """
+        Create a new refresh token for long-lived session management.
+
+        Args:
+            site_id: The ID of the site this token belongs to
+            user_id: The ID of the user to create the token for
+            family_id: Optional family ID for token rotation (generates new if None)
+
+        Returns:
+            RefreshToken: The created refresh token model
+        """
+        token_str = self.generate_token()
+        created_at = int(time.time())
+        expires_at = created_at + self.config.REFRESH_TOKEN_EXPIRATION
+
+        if family_id is None:
+            family_id = self.generate_token()
+
+        refresh_token = RefreshToken(
+            token=token_str,
+            site_id=site_id,
+            user_id=user_id,
+            family_id=family_id,
+            expires_at=expires_at,
+            created_at=created_at,
+            used_at=None,
+            revoked=False
+        )
+
+        return db_manager.create_refresh_token(refresh_token)
+
+    def validate_and_rotate_refresh_token(self, token: str) -> Optional[RefreshTokenResult]:
+        """
+        Validate a refresh token and optionally rotate it.
+
+        Handles concurrent request race conditions with grace period.
+        Detects potential token theft when used token is presented after grace period.
+
+        Args:
+            token: The refresh token string to validate
+
+        Returns:
+            Optional[RefreshTokenResult]: Result containing user_id, site_id, and new token if valid
+
+        Raises:
+            ValueError: If token reuse detected (potential theft)
+        """
+        refresh_token = db_manager.find_refresh_token_by_token(token)
+
+        if not refresh_token:
+            return None
+
+        current_time = int(time.time())
+
+        if refresh_token.revoked:
+            return None
+
+        if refresh_token.expires_at < current_time:
+            return None
+
+        if self.config.REFRESH_TOKEN_ROTATION:
+            if refresh_token.used_at is not None:
+                grace_period_end = refresh_token.used_at + self.config.REFRESH_TOKEN_GRACE_PERIOD
+
+                if current_time <= grace_period_end:
+                    latest = db_manager.find_latest_refresh_token_in_family(refresh_token.family_id)
+                    if latest and latest.token != refresh_token.token:
+                        return RefreshTokenResult(
+                            user_id=latest.user_id,
+                            site_id=latest.site_id,
+                            new_refresh_token=latest
+                        )
+                    return RefreshTokenResult(
+                        user_id=refresh_token.user_id,
+                        site_id=refresh_token.site_id,
+                        new_refresh_token=None
+                    )
+                else:
+                    db_manager.revoke_refresh_token_family(refresh_token.family_id)
+                    raise ValueError("Refresh token reuse detected - all sessions revoked")
+
+            db_manager.mark_refresh_token_used(token, current_time)
+            new_token = self.create_refresh_token(
+                refresh_token.site_id,
+                refresh_token.user_id,
+                refresh_token.family_id
+            )
+            return RefreshTokenResult(
+                user_id=refresh_token.user_id,
+                site_id=refresh_token.site_id,
+                new_refresh_token=new_token
+            )
+        else:
+            return RefreshTokenResult(
+                user_id=refresh_token.user_id,
+                site_id=refresh_token.site_id,
+                new_refresh_token=None
+            )
+
+    def invalidate_user_refresh_tokens(self, user_id: int) -> None:
+        """
+        Invalidate all refresh tokens for a specific user.
+
+        Args:
+            user_id: The ID of the user whose refresh tokens should be invalidated
+        """
+        db_manager.delete_refresh_tokens_by_user(user_id)
 
     def create_email_verification_token(self, site_id: int, user_id: int) -> EmailVerificationToken:
         """
@@ -274,6 +385,7 @@ class TokenService:
         current_time = int(time.time())
 
         db_manager.delete_expired_auth_tokens(current_time)
+        db_manager.delete_expired_refresh_tokens(current_time)
         db_manager.delete_expired_email_verification_tokens(current_time)
         db_manager.delete_expired_password_reset_tokens(current_time)
         db_manager.delete_expired_email_change_requests(current_time)

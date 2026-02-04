@@ -84,3 +84,22 @@ class AuthTokenResponseSchema(Schema):
     token = fields.String()
     user_id = fields.Integer()
     expires_at = fields.Integer()
+
+
+class RefreshTokenRequestSchema(Schema):
+    """Schema for refresh token request"""
+    refresh_token = fields.String(required=True)
+
+
+class RefreshTokenResponseSchema(Schema):
+    """Schema for refresh token response"""
+    token = fields.String()
+    user_id = fields.Integer()
+    site_id = fields.Integer()
+    expires_at = fields.Integer()
+
+
+class LoginResultResponseSchema(Schema):
+    """Schema for login result response (auth + refresh tokens)"""
+    auth_token = fields.Nested(AuthTokenResponseSchema)
+    refresh_token = fields.Nested(RefreshTokenResponseSchema, allow_none=True)

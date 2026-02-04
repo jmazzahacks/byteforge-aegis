@@ -3,7 +3,7 @@ User login endpoint.
 """
 from flask import Blueprint, jsonify
 from services.auth_service import auth_service
-from schemas.auth_schemas import LoginRequestSchema, AuthTokenResponseSchema
+from schemas.auth_schemas import LoginRequestSchema, LoginResultResponseSchema
 from utils.validators import validate_request
 
 login_bp = Blueprint('login', __name__)
@@ -21,18 +21,18 @@ def login(validated_data):
         password: User password
 
     Returns:
-        200: Login successful with auth token
+        200: Login successful with auth token and refresh token
         401: Invalid credentials
         403: Email not verified
     """
     try:
-        auth_token = auth_service.login(
+        login_result = auth_service.login(
             site_id=validated_data['site_id'],
             email=validated_data['email'],
             password=validated_data['password']
         )
-        schema = AuthTokenResponseSchema()
-        return jsonify(schema.dump(auth_token)), 200
+        schema = LoginResultResponseSchema()
+        return jsonify(schema.dump(login_result)), 200
     except ValueError as e:
         error_msg = str(e).lower()
         if 'not verified' in error_msg:
