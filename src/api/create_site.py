@@ -6,6 +6,7 @@ import time
 from database import db_manager
 from models.site import Site
 from schemas.site_schemas import CreateSiteRequestSchema, SiteResponseSchema
+from services.webhook_service import webhook_service
 from utils.validators import validate_request
 from utils.api_key_middleware import require_master_api_key
 
@@ -32,6 +33,9 @@ def create_site(validated_data):
     """
     current_time = int(time.time())
 
+    webhook_url = validated_data.get('webhook_url')
+    webhook_secret = webhook_service.generate_webhook_secret() if webhook_url else None
+
     site = Site(
         id=0,
         name=validated_data['name'],
@@ -41,7 +45,9 @@ def create_site(validated_data):
         email_from_name=validated_data['email_from_name'],
         created_at=current_time,
         updated_at=current_time,
-        verification_redirect_url=validated_data.get('verification_redirect_url')
+        verification_redirect_url=validated_data.get('verification_redirect_url'),
+        webhook_url=webhook_url,
+        webhook_secret=webhook_secret
     )
 
     try:

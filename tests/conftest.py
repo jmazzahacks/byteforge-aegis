@@ -21,10 +21,10 @@ from app import create_app
 def clean_database():
     """Clean all tables before each test"""
     with db_manager.get_cursor(commit=True) as cursor:
-        cursor.execute("TRUNCATE sites, users, auth_tokens, refresh_tokens, email_verification_tokens, password_reset_tokens, email_change_requests CASCADE")
+        cursor.execute("TRUNCATE sites, users, auth_tokens, refresh_tokens, email_verification_tokens, password_reset_tokens, email_change_requests, webhook_events CASCADE")
     yield
     with db_manager.get_cursor(commit=True) as cursor:
-        cursor.execute("TRUNCATE sites, users, auth_tokens, refresh_tokens, email_verification_tokens, password_reset_tokens, email_change_requests CASCADE")
+        cursor.execute("TRUNCATE sites, users, auth_tokens, refresh_tokens, email_verification_tokens, password_reset_tokens, email_change_requests, webhook_events CASCADE")
 
 
 @pytest.fixture

@@ -5,6 +5,7 @@ from flask import Blueprint, jsonify
 import time
 from database import db_manager
 from schemas.site_schemas import UpdateSiteRequestSchema, SiteResponseSchema
+from services.webhook_service import webhook_service
 from utils.validators import validate_request
 from utils.api_key_middleware import require_master_api_key
 
@@ -58,6 +59,16 @@ def update_site(validated_data, site_id):
         site.email_from = validated_data['email_from']
     if 'email_from_name' in validated_data:
         site.email_from_name = validated_data['email_from_name']
+    if 'webhook_url' in validated_data:
+        site.webhook_url = validated_data['webhook_url']
+        if site.webhook_url:
+            # Generate new secret when webhook URL is set or changed
+            site.webhook_secret = webhook_service.generate_webhook_secret()
+        else:
+            # Clear secret when webhook URL is removed
+            site.webhook_secret = None
+    if validated_data.get('regenerate_webhook_secret') and site.webhook_url:
+        site.webhook_secret = webhook_service.generate_webhook_secret()
 
     # Update timestamp
     site.updated_at = int(time.time())

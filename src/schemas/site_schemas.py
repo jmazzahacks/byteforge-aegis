@@ -13,6 +13,7 @@ class CreateSiteRequestSchema(Schema):
     email_from = fields.Email(required=True)
     email_from_name = fields.String(required=True, validate=validate.Length(min=1, max=255))
     allow_self_registration = fields.Boolean(load_default=True)
+    webhook_url = fields.Url(required=False, allow_none=True)
 
 
 class UpdateSiteRequestSchema(Schema):
@@ -24,6 +25,8 @@ class UpdateSiteRequestSchema(Schema):
     email_from = fields.Email(required=False)
     email_from_name = fields.String(required=False, validate=validate.Length(min=1, max=255))
     allow_self_registration = fields.Boolean(required=False)
+    webhook_url = fields.Url(required=False, allow_none=True)
+    regenerate_webhook_secret = fields.Boolean(required=False)
 
 
 class SiteResponseSchema(Schema):
@@ -38,3 +41,5 @@ class SiteResponseSchema(Schema):
     created_at = fields.Integer()
     updated_at = fields.Integer()
     allow_self_registration = fields.Boolean()
+    webhook_url = fields.Url(allow_none=True)
+    webhook_secret = fields.String(allow_none=True)

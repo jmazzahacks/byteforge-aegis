@@ -15,6 +15,7 @@ Multi-tenant authentication service built with Flask and PostgreSQL. Provides se
 - **Email Integration** - Mailgun integration for transactional emails
 - **Token-Based Sessions** - Secure authentication tokens with expiration
 - **Refresh Tokens** - Long-lived refresh tokens for seamless session extension
+- **Webhooks** - HMAC-signed event notifications to tenant sites (e.g., post-verification callbacks)
 - **PostgreSQL Backend** - Reliable data storage with proper indexing
 
 ## Requirements
@@ -114,6 +115,7 @@ curl -X POST http://localhost:5678/api/sites \
 **Optional fields:**
 - `verification_redirect_url` - If not set, users redirect to `frontend_url` after email verification
 - `allow_self_registration` - Defaults to `true`. Set to `false` to disable public registration (admin registration still works)
+- `webhook_url` - URL to receive event notifications (e.g., `https://example.com/webhooks/aegis`). A `webhook_secret` is auto-generated for HMAC signature verification
 
 #### List All Sites
 
@@ -169,6 +171,78 @@ curl -X PUT http://localhost:5678/api/sites/{site_id} \
 ```
 
 When disabled, `/api/auth/register` returns an error. Admin registration via `/api/admin/register` is unaffected.
+
+### Webhooks
+
+When a site has a `webhook_url` configured, Aegis sends signed HTTP POST notifications for key events. Currently supported events:
+
+- **`user.verified`** - Fired when a user completes email verification
+
+This allows tenant sites to initialize users in their own systems after verification.
+
+#### Webhook Payload
+
+```
+POST {webhook_url}
+Content-Type: application/json
+X-Aegis-Signature: sha256=<hmac_hex>
+X-Aegis-Event: user.verified
+X-Aegis-Timestamp: 1708300000
+
+{
+  "event_type": "user.verified",
+  "site_id": 1,
+  "user_id": 42,
+  "email": "user@example.com",
+  "aegis_role": "user",
+  "timestamp": 1708300000
+}
+```
+
+#### Verifying Webhook Signatures
+
+The `X-Aegis-Signature` header contains an HMAC-SHA256 signature computed over `"{timestamp}.{body}"` using the site's `webhook_secret`. To verify:
+
+```python
+import hmac
+import hashlib
+
+def verify_aegis_webhook(secret, timestamp, body, signature):
+    expected = hmac.new(
+        secret.encode(),
+        f"{timestamp}.{body}".encode(),
+        hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(f"sha256={expected}", signature)
+```
+
+#### Managing Webhooks
+
+Set webhook URL when creating a site (secret is auto-generated):
+```bash
+curl -X POST http://localhost:5678/api/sites \
+  -H "X-API-Key: your-master-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "My Site", "domain": "example.com", ..., "webhook_url": "https://example.com/webhooks/aegis"}'
+```
+
+Update or rotate the webhook secret:
+```bash
+curl -X PUT http://localhost:5678/api/sites/{site_id} \
+  -H "X-API-Key: your-master-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"regenerate_webhook_secret": true}'
+```
+
+Remove webhooks:
+```bash
+curl -X PUT http://localhost:5678/api/sites/{site_id} \
+  -H "X-API-Key: your-master-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"webhook_url": null}'
+```
+
+Webhook deliveries are logged in the `webhook_events` table for debugging. Delivery happens on a background thread and never blocks the verification response. Failed deliveries do not affect user verification.
 
 ### Authentication
 

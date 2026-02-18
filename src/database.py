@@ -4,6 +4,7 @@ from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
 from typing import Generator, List, Optional
 from models.user import User
+from models.webhook_event import WebhookEvent
 from config import get_config
 
 
@@ -100,11 +101,11 @@ class DatabaseManager:
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO sites (name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO sites (name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
-                (site.name, site.domain, site.frontend_url, site.verification_redirect_url, site.email_from, site.email_from_name, site.created_at, site.updated_at, site.allow_self_registration)
+                (site.name, site.domain, site.frontend_url, site.verification_redirect_url, site.email_from, site.email_from_name, site.created_at, site.updated_at, site.allow_self_registration, site.webhook_url, site.webhook_secret)
             )
             site.id = cursor.fetchone()['id']
         return site
@@ -123,7 +124,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT id, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration FROM sites WHERE id = %s",
+                "SELECT id, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret FROM sites WHERE id = %s",
                 (site_id,)
             )
             row = cursor.fetchone()
@@ -143,7 +144,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT id, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration FROM sites WHERE domain = %s",
+                "SELECT id, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret FROM sites WHERE domain = %s",
                 (domain,)
             )
             row = cursor.fetchone()
@@ -163,10 +164,10 @@ class DatabaseManager:
             cursor.execute(
                 """
                 UPDATE sites
-                SET name = %s, domain = %s, frontend_url = %s, verification_redirect_url = %s, email_from = %s, email_from_name = %s, updated_at = %s, allow_self_registration = %s
+                SET name = %s, domain = %s, frontend_url = %s, verification_redirect_url = %s, email_from = %s, email_from_name = %s, updated_at = %s, allow_self_registration = %s, webhook_url = %s, webhook_secret = %s
                 WHERE id = %s
                 """,
-                (site.name, site.domain, site.frontend_url, site.verification_redirect_url, site.email_from, site.email_from_name, site.updated_at, site.allow_self_registration, site.id)
+                (site.name, site.domain, site.frontend_url, site.verification_redirect_url, site.email_from, site.email_from_name, site.updated_at, site.allow_self_registration, site.webhook_url, site.webhook_secret, site.id)
             )
         return site
 
@@ -712,6 +713,47 @@ class DatabaseManager:
         with self.get_cursor(commit=True) as cursor:
             cursor.execute("DELETE FROM email_change_requests WHERE expires_at < %s", (current_time,))
             return cursor.rowcount
+
+    # WebhookEvent operations
+    def create_webhook_event(self, event: WebhookEvent) -> WebhookEvent:
+        """
+        Create a webhook event record in the database.
+
+        Args:
+            event: WebhookEvent model with delivery details
+
+        Returns:
+            WebhookEvent: The created event with auto-generated id
+        """
+        with self.get_cursor(commit=True) as cursor:
+            cursor.execute(
+                """
+                INSERT INTO webhook_events (site_id, event_type, payload, response_status, response_body, success, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (event.site_id, event.event_type, event.payload, event.response_status, event.response_body, event.success, event.created_at)
+            )
+            event.id = cursor.fetchone()['id']
+        return event
+
+    def list_webhook_events_by_site(self, site_id: int) -> List[WebhookEvent]:
+        """
+        List all webhook events for a specific site.
+
+        Args:
+            site_id: The site ID
+
+        Returns:
+            List of WebhookEvent models ordered by most recent first
+        """
+        with self.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT id, site_id, event_type, payload, response_status, response_body, success, created_at FROM webhook_events WHERE site_id = %s ORDER BY created_at DESC",
+                (site_id,)
+            )
+            rows = cursor.fetchall()
+            return [WebhookEvent.from_dict(row) for row in rows]
 
 
 # Global database manager instance

@@ -14,7 +14,9 @@ CREATE TABLE IF NOT EXISTS sites (
     email_from_name VARCHAR(255) NOT NULL,
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL,
-    allow_self_registration BOOLEAN DEFAULT TRUE NOT NULL
+    allow_self_registration BOOLEAN DEFAULT TRUE NOT NULL,
+    webhook_url VARCHAR(512),
+    webhook_secret VARCHAR(255)
 );
 
 CREATE INDEX idx_sites_domain ON sites(domain);
@@ -113,3 +115,19 @@ CREATE TABLE IF NOT EXISTS email_change_requests (
 CREATE INDEX idx_email_change_requests_token ON email_change_requests(token);
 CREATE INDEX idx_email_change_requests_user_id ON email_change_requests(user_id);
 CREATE INDEX idx_email_change_requests_site_id ON email_change_requests(site_id);
+
+-- Webhook delivery log
+CREATE TABLE IF NOT EXISTS webhook_events (
+    id SERIAL PRIMARY KEY,
+    site_id INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    event_type VARCHAR(50) NOT NULL,
+    payload TEXT NOT NULL,
+    response_status INTEGER,
+    response_body TEXT,
+    success BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at BIGINT NOT NULL
+);
+
+CREATE INDEX idx_webhook_events_site_id ON webhook_events(site_id);
+CREATE INDEX idx_webhook_events_event_type ON webhook_events(event_type);
+CREATE INDEX idx_webhook_events_created_at ON webhook_events(created_at);
