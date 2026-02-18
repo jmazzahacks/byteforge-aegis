@@ -3,6 +3,7 @@ VERSION
 
 # docker stuff
 .dockerignore
+build-publish.sh
 
 # Code assist stuff
 CLAUDE.md
