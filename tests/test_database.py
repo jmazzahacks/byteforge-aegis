@@ -1,9 +1,7 @@
 import time
 from database import db_manager
-from models.site import Site
+from byteforge_aegis_models import AuthToken, Site, UserRole
 from models.user import User
-from models.user_role import UserRole
-from models.auth_token import AuthToken
 
 
 def test_create_site(clean_database):

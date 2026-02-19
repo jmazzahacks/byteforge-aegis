@@ -5,7 +5,7 @@ from functools import wraps
 from flask import request, jsonify
 from services.token_service import token_service
 from database import db_manager
-from models.user_role import UserRole
+from byteforge_aegis_models import UserRole
 
 
 def require_role(required_role: UserRole):

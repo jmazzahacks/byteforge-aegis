@@ -17,9 +17,7 @@ from typing import Optional
 import requests
 
 from database import db_manager
-from models.site import Site
-from models.webhook_event import WebhookEvent
-from models.webhook_payload import WebhookPayload
+from byteforge_aegis_models import Site, WebhookEvent, WebhookPayload
 
 logger = logging.getLogger(__name__)
 

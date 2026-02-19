@@ -3,9 +3,8 @@ Tests for the admin list users endpoint.
 """
 import time
 from database import db_manager
-from models.site import Site
+from byteforge_aegis_models import Site, UserRole
 from models.user import User
-from models.user_role import UserRole
 
 
 def test_admin_list_users_success(test_client, admin_auth_token, sample_user, admin_user):
@@ -140,7 +139,7 @@ def test_admin_list_users_returns_user_fields(test_client, admin_auth_token, adm
 
 def test_admin_list_users_expired_token(test_client, sample_site, admin_user):
     """Test that an expired token returns 401"""
-    from models.auth_token import AuthToken
+    from byteforge_aegis_models import AuthToken
 
     current_time = int(time.time())
     expired_token = AuthToken(

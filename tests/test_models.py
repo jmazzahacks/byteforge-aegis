@@ -1,8 +1,6 @@
 import time
-from models.site import Site
+from byteforge_aegis_models import AuthToken, Site, UserRole
 from models.user import User
-from models.user_role import UserRole
-from models.auth_token import AuthToken
 from models.email_verification_token import EmailVerificationToken
 from models.password_reset_token import PasswordResetToken
 from models.email_change_request import EmailChangeRequest

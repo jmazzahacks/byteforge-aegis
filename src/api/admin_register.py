@@ -3,7 +3,7 @@ Admin user registration endpoint.
 """
 from flask import Blueprint, jsonify
 from services.auth_service import auth_service
-from models.user_role import UserRole
+from byteforge_aegis_models import UserRole
 from schemas.auth_schemas import AdminRegisterRequestSchema, UserResponseSchema
 from utils.validators import validate_request
 from utils.api_key_middleware import require_master_api_key

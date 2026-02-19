@@ -4,7 +4,7 @@ Create site endpoint.
 from flask import Blueprint, jsonify
 import time
 from database import db_manager
-from models.site import Site
+from byteforge_aegis_models import Site
 from schemas.site_schemas import CreateSiteRequestSchema, SiteResponseSchema
 from services.webhook_service import webhook_service
 from utils.validators import validate_request

@@ -7,3 +7,4 @@ email-validator
 marshmallow
 requests
 gunicorn
+byteforge-aegis-models @ git+https://github.com/Really-Bad-Apps/byteforge-aegis-models.git

@@ -1,58 +1,32 @@
 from dataclasses import dataclass
-from typing import Dict, Any, Optional
-from models.user_role import UserRole
+from typing import Any, Dict, Optional
+from byteforge_aegis_models import User as BaseUser, UserRole
 
 
 @dataclass
-class User:
+class User(BaseUser):
     """
-    User model representing a registered user account.
+    Backend User model extending the shared BaseUser with password_hash.
 
-    Users are scoped to a specific site (multi-tenant).
-    Email is unique per site, not globally.
-
-    Attributes:
-        id: Unique user identifier
-        site_id: The site/tenant this user belongs to
-        email: User's email address (unique per site)
-        password_hash: Bcrypt hashed password (None for admin-created users who haven't set password yet)
-        is_verified: Whether the user's email has been verified
-        role: User role (USER or ADMIN)
-        created_at: Unix timestamp when the user was created
-        updated_at: Unix timestamp when the user was last updated
+    The shared BaseUser contains: id, site_id, email, is_verified, role, created_at, updated_at.
+    This subclass adds password_hash which is backend-only (never exposed to clients).
     """
-    id: int
-    site_id: int
-    email: str
-    password_hash: Optional[str]
-    is_verified: bool
-    role: UserRole
-    created_at: int
-    updated_at: int
+    password_hash: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert user model to dictionary"""
-        return {
-            'id': self.id,
-            'site_id': self.site_id,
-            'email': self.email,
-            'password_hash': self.password_hash,
-            'is_verified': self.is_verified,
-            'role': self.role.value,
-            'created_at': self.created_at,
-            'updated_at': self.updated_at
-        }
+        result = super().to_dict()
+        result['password_hash'] = self.password_hash
+        return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'User':
-        """Create user model from dictionary"""
         return cls(
             id=data['id'],
             site_id=data['site_id'],
             email=data['email'],
-            password_hash=data['password_hash'],
+            password_hash=data.get('password_hash'),
             is_verified=data['is_verified'],
             role=UserRole(data['role']),
             created_at=data['created_at'],
-            updated_at=data['updated_at']
+            updated_at=data['updated_at'],
         )

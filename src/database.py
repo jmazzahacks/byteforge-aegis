@@ -3,8 +3,8 @@ from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
 from typing import Generator, List, Optional
+from byteforge_aegis_models import WebhookEvent
 from models.user import User
-from models.webhook_event import WebhookEvent
 from config import get_config
 
 
@@ -120,7 +120,7 @@ class DatabaseManager:
         Returns:
             Optional[Site]: The site if found, None otherwise
         """
-        from models.site import Site
+        from byteforge_aegis_models import Site
 
         with self.get_cursor() as cursor:
             cursor.execute(
@@ -140,7 +140,7 @@ class DatabaseManager:
         Returns:
             Optional[Site]: The site if found, None otherwise
         """
-        from models.site import Site
+        from byteforge_aegis_models import Site
 
         with self.get_cursor() as cursor:
             cursor.execute(
@@ -327,7 +327,7 @@ class DatabaseManager:
         Returns:
             Optional[AuthToken]: The auth token if found, None otherwise
         """
-        from models.auth_token import AuthToken
+        from byteforge_aegis_models import AuthToken
 
         with self.get_cursor() as cursor:
             cursor.execute(
@@ -412,7 +412,7 @@ class DatabaseManager:
         Returns:
             Optional[RefreshToken]: The refresh token if found, None otherwise
         """
-        from models.refresh_token import RefreshToken
+        from byteforge_aegis_models import RefreshToken
 
         with self.get_cursor() as cursor:
             cursor.execute(
@@ -468,7 +468,7 @@ class DatabaseManager:
         Returns:
             Optional[RefreshToken]: The most recent token in the family, None if none found
         """
-        from models.refresh_token import RefreshToken
+        from byteforge_aegis_models import RefreshToken
 
         with self.get_cursor() as cursor:
             cursor.execute(

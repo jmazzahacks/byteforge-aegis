@@ -10,10 +10,8 @@ os.environ['DB_NAME'] = 'aegis_test'
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from database import db_manager
-from models.site import Site
+from byteforge_aegis_models import AuthToken, Site, UserRole
 from models.user import User
-from models.user_role import UserRole
-from models.auth_token import AuthToken
 from app import create_app
 
 

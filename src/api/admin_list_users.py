@@ -3,7 +3,7 @@ Admin endpoint to list users for the authenticated admin's site.
 """
 from flask import Blueprint, jsonify, request
 from database import db_manager
-from models.user_role import UserRole
+from byteforge_aegis_models import UserRole
 from schemas.auth_schemas import UserResponseSchema
 from utils.role_middleware import require_role
 

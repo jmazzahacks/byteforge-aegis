@@ -3,8 +3,7 @@ import time
 from typing import Optional
 from database import db_manager
 from config import get_config
-from models.auth_token import AuthToken
-from models.refresh_token import RefreshToken
+from byteforge_aegis_models import AuthToken, RefreshToken
 from models.refresh_token_result import RefreshTokenResult
 from models.email_verification_token import EmailVerificationToken
 from models.password_reset_token import PasswordResetToken

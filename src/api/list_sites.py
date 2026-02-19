@@ -33,7 +33,7 @@ def list_sites():
         rows = cursor.fetchall()
 
     # Convert to Site objects and serialize
-    from models.site import Site
+    from byteforge_aegis_models import Site
     sites = [Site.from_dict(row) for row in rows]
     schema = SiteResponseSchema(many=True)
 

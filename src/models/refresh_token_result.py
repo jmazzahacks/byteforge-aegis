@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional
-from models.refresh_token import RefreshToken
+from byteforge_aegis_models import RefreshToken
 
 
 @dataclass

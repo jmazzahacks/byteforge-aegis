@@ -2,7 +2,7 @@ import time
 from services.password_service import password_service
 from services.token_service import token_service
 from services.auth_service import auth_service
-from models.user_role import UserRole
+from byteforge_aegis_models import UserRole
 
 
 def test_password_hashing():
@@ -47,7 +47,7 @@ def test_validate_auth_token(sample_site, sample_user):
 
 def test_validate_expired_auth_token(sample_site, sample_user):
     """Test that expired tokens are invalid"""
-    from models.auth_token import AuthToken
+    from byteforge_aegis_models import AuthToken
     from database import db_manager
 
     # Create an expired token

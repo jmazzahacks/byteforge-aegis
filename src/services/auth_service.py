@@ -2,13 +2,11 @@ import time
 import logging
 from typing import Optional
 from database import db_manager
+from byteforge_aegis_models import (
+    AuthToken, LoginResult, UserRole, VerificationResult,
+    VerificationTokenStatus, WebhookPayload,
+)
 from models.user import User
-from models.user_role import UserRole
-from models.auth_token import AuthToken
-from models.login_result import LoginResult
-from models.verification_result import VerificationResult
-from models.verification_token_status import VerificationTokenStatus
-from models.webhook_payload import WebhookPayload
 from services.password_service import password_service
 from services.token_service import token_service
 from services.email_service import email_service
