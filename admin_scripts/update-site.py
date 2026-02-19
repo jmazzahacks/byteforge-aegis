@@ -101,6 +101,8 @@ def main():
     print(f"  Verification Redirect: {selected_site.get('verification_redirect_url') or '(not set)'}")
     print(f"  Email From: {selected_site['email_from']}")
     print(f"  Email From Name: {selected_site['email_from_name']}")
+    print(f"  Webhook URL: {selected_site.get('webhook_url') or '(not set)'}")
+    print(f"  Webhook Secret: {selected_site.get('webhook_secret') or '(not set)'}")
     print("=" * 60)
 
     print()
@@ -141,6 +143,23 @@ def main():
     new_email_from_name = get_input("Email from name", selected_site['email_from_name'])
     if new_email_from_name != selected_site['email_from_name']:
         update_data['email_from_name'] = new_email_from_name
+
+    current_webhook = selected_site.get('webhook_url') or ""
+    print()
+    print("Webhook URL (receives POST notifications for auth events).")
+    print("Leave blank to clear, or enter a URL.")
+    new_webhook = get_input(
+        "Webhook URL",
+        current_webhook if current_webhook else None,
+        required=False
+    )
+    if new_webhook != current_webhook:
+        update_data['webhook_url'] = new_webhook if new_webhook else None
+
+    if current_webhook and new_webhook == current_webhook:
+        regen = input("Regenerate webhook secret? (y/n) [n]: ").strip().lower()
+        if regen in ('y', 'yes'):
+            update_data['regenerate_webhook_secret'] = True
 
     # Check if any changes were made
     if not update_data:
@@ -185,6 +204,9 @@ def main():
             if site.get('verification_redirect_url'):
                 print(f"Verification Redirect: {site['verification_redirect_url']}")
             print(f"Email From: {site['email_from_name']} <{site['email_from']}>")
+            if site.get('webhook_url'):
+                print(f"Webhook URL: {site['webhook_url']}")
+                print(f"Webhook Secret: {site.get('webhook_secret', '(not returned)')}")
             print(f"Updated: {site['updated_at']}")
             print("=" * 60)
         else:
