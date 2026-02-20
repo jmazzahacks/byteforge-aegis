@@ -18,6 +18,12 @@ class AdminRegisterRequestSchema(Schema):
     role = fields.String(validate=validate.OneOf(['user', 'admin']))
 
 
+class TenantAdminRegisterSchema(Schema):
+    """Schema for tenant admin user registration (site_id derived from admin's token)"""
+    email = fields.Email(required=True)
+    role = fields.String(validate=validate.OneOf(['user', 'admin']))
+
+
 class LoginRequestSchema(Schema):
     """Schema for login request"""
     site_id = fields.Integer(required=True)
