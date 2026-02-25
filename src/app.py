@@ -94,8 +94,11 @@ def create_app() -> Flask:
     app.register_blueprint(admin_register_user_bp)
 
     # Health check endpoint
+    logger = logging.getLogger(__name__)
+
     @app.route('/api/health', methods=['GET'])
     def health_check():
+        logger.info('Health check', extra={'route': '/api/health'})
         return {'status': 'healthy', 'service': 'auth-service'}, 200
 
     return app
