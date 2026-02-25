@@ -53,6 +53,13 @@ services:
       APP_HOST: 0.0.0.0
       APP_PORT: 5678
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      # Logging
+      DEBUG_LOCAL: ${DEBUG_LOCAL:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MZ_LOKI_ENDPOINT: ${MZ_LOKI_ENDPOINT}
+      MZ_LOKI_USER: ${MZ_LOKI_USER}
+      MZ_LOKI_PASSWORD: ${MZ_LOKI_PASSWORD}
+      MZ_LOKI_CA_BUNDLE_PATH: ${MZ_LOKI_CA_BUNDLE_PATH:-/app/certs/ca.pem}
     ports:
       - "5678:5678"
     depends_on:

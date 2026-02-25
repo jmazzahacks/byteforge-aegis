@@ -1,19 +1,39 @@
-import os
 import logging
+import os
+
 from flask import Flask
 from flask_cors import CORS
+from mazza_base import configure_logging
+
 from config import get_config
 
 
 def create_app() -> Flask:
     """Application factory pattern"""
+    # Configure logging inside create_app() so it runs post-fork in the
+    # gunicorn worker process. Module-level init causes SSL context issues
+    # with the Loki handler because the SSL session doesn't survive fork().
+    debug_mode = os.environ.get('DEBUG_LOCAL', 'true').lower() == 'true'
+    log_level = os.environ.get('LOG_LEVEL', 'INFO')
+    configure_logging(
+        application_tag='aegis-backend',
+        debug_local=debug_mode,
+        local_level=log_level,
+    )
+
     app = Flask(__name__)
 
-    # Configure logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+    # Force Flask, werkzeug, and gunicorn loggers to propagate to root.
+    # These loggers create their own StreamHandlers with propagate=False,
+    # which bypasses the root logger's Loki handler.
+    app.logger.handlers.clear()
+    app.logger.propagate = True
+    app.logger.setLevel(logging.DEBUG)
+
+    for name in ('werkzeug', 'gunicorn', 'gunicorn.error', 'gunicorn.access'):
+        dep_logger = logging.getLogger(name)
+        dep_logger.handlers.clear()
+        dep_logger.propagate = True
 
     # Load configuration
     config = get_config()

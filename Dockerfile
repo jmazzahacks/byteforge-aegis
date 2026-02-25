@@ -10,6 +10,10 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies
+# CR_PAT needed for private GitHub dependencies (mazza-base)
+ARG CR_PAT
+ENV CR_PAT=${CR_PAT}
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

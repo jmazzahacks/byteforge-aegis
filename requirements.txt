@@ -8,3 +8,5 @@ marshmallow
 requests
 gunicorn
 byteforge-aegis-models @ git+https://github.com/Really-Bad-Apps/byteforge-aegis-models.git
+# Logging configuration with Loki support
+mazza-base @ git+https://${CR_PAT}@github.com/mazza-vc/python-mazza-base.git@main
