@@ -41,4 +41,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5678/api/health')" || exit 1
 
 # Run with gunicorn for production (using application factory pattern)
-CMD ["gunicorn", "--bind", "0.0.0.0:5678", "--workers", "4", "--chdir", "src", "app:create_app()"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5678", "--workers", "4", "--timeout", "60", "--max-requests", "1000", "--max-requests-jitter", "50", "--chdir", "src", "app:create_app()"]

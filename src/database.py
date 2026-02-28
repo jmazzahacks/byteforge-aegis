@@ -34,7 +34,8 @@ class DatabaseManager:
                 port=self.config.DB_PORT,
                 database=self.config.DB_NAME,
                 user=self.config.DB_USER,
-                password=self.config.DB_PASSWORD
+                password=self.config.DB_PASSWORD,
+                connect_timeout=5,
             )
             self._pool_initialized = True
             print("Database connection pool initialized successfully")
