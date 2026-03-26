@@ -59,6 +59,8 @@ def update_site(validated_data, site_id):
         site.email_from = validated_data['email_from']
     if 'email_from_name' in validated_data:
         site.email_from_name = validated_data['email_from_name']
+    if 'allow_self_registration' in validated_data:
+        site.allow_self_registration = validated_data['allow_self_registration']
     if 'webhook_url' in validated_data:
         site.webhook_url = validated_data['webhook_url']
         if site.webhook_url:

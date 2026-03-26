@@ -46,6 +46,7 @@ def create_site(validated_data):
         created_at=current_time,
         updated_at=current_time,
         verification_redirect_url=validated_data.get('verification_redirect_url'),
+        allow_self_registration=validated_data.get('allow_self_registration', True),
         webhook_url=webhook_url,
         webhook_secret=webhook_secret
     )
