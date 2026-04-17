@@ -22,7 +22,6 @@ COPY src/ ./src/
 COPY database/ ./database/
 COPY admin_scripts/ ./admin_scripts/
 COPY migrate_scripts/ ./migrate_scripts/
-COPY setup-database.py .
 
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash appuser && \

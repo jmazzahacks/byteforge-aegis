@@ -71,7 +71,7 @@ def create_database(cursor, db_name: str, owner: str) -> None:
 
 def run_schema(db_config: dict) -> None:
     """Run schema.sql to create tables"""
-    schema_path = os.path.join(os.path.dirname(__file__), 'database', 'schema.sql')
+    schema_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'database', 'schema.sql')
 
     if not os.path.exists(schema_path):
         print(f"Error: schema.sql not found at {schema_path}")
