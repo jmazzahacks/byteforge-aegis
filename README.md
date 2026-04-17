@@ -406,7 +406,7 @@ ByteForge Aegis includes production-ready Docker configuration with Gunicorn, au
 
 1. **Create environment file**
    ```bash
-   cp .env.docker.example .env
+   cp env.docker.example .env
    # Edit .env with your configuration
    ```
 
@@ -581,7 +581,7 @@ REFRESH_TOKEN_ROTATION=true
 REFRESH_TOKEN_GRACE_PERIOD=30
 ```
 
-See `.env.docker.example` for complete configuration template.
+See `env.docker.example` for complete configuration template.
 
 ### Troubleshooting Docker
 

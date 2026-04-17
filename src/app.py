@@ -3,7 +3,7 @@ import os
 
 from flask import Flask
 from flask_cors import CORS
-from mazza_base import configure_logging
+from byteforge_loki_logging import configure_logging
 
 from config import get_config
 

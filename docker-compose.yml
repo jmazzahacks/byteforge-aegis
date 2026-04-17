@@ -1,87 +1,23 @@
-version: '3.8'
-
 services:
-  db:
-    image: postgres:16-alpine
-    container_name: byteforge-aegis-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: aegis
-      POSTGRES_USER: aegis_admin
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aegis_admin -d aegis"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - aegis-network
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  app:
-    build: .
+  aegis:
+    image: ghcr.io/jmazzahacks/byteforge-aegis:latest
     container_name: aegis
     restart: unless-stopped
-    environment:
-      FLASK_ENV: ${FLASK_ENV:-production}
-      FLASK_DEBUG: ${FLASK_DEBUG:-False}
-      SECRET_KEY: ${SECRET_KEY}
-      MASTER_API_KEY: ${MASTER_API_KEY}
-      DB_HOST: db
-      DB_PORT: 5432
-      DB_NAME: aegis
-      DB_USER: aegis_admin
-      DB_PASSWORD: ${DB_PASSWORD}
-      MAILGUN_API_KEY: ${MAILGUN_API_KEY}
-      MAILGUN_DOMAIN: ${MAILGUN_DOMAIN}
-      EMAIL_FROM: ${EMAIL_FROM}
-      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-ByteForge Aegis}
-      AUTH_TOKEN_EXPIRATION: ${AUTH_TOKEN_EXPIRATION:-3600}
-      EMAIL_VERIFICATION_EXPIRATION: ${EMAIL_VERIFICATION_EXPIRATION:-86400}
-      PASSWORD_RESET_EXPIRATION: ${PASSWORD_RESET_EXPIRATION:-3600}
-      EMAIL_CHANGE_EXPIRATION: ${EMAIL_CHANGE_EXPIRATION:-3600}
-      AEGIS_FRONTEND_URL: ${AEGIS_FRONTEND_URL}
-      APP_HOST: 0.0.0.0
-      APP_PORT: 5678
-      CORS_ORIGINS: ${CORS_ORIGINS:-*}
-      # Logging
-      DEBUG_LOCAL: ${DEBUG_LOCAL:-false}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      MZ_LOKI_ENDPOINT: ${MZ_LOKI_ENDPOINT}
-      MZ_LOKI_USER: ${MZ_LOKI_USER}
-      MZ_LOKI_PASSWORD: ${MZ_LOKI_PASSWORD}
-      MZ_LOKI_CA_BUNDLE_PATH: ${MZ_LOKI_CA_BUNDLE_PATH:-/app/certs/ca.pem}
+    env_file:
+      - .env
     ports:
-      - "5678:5678"
-    depends_on:
-      db:
-        condition: service_healthy
+      - "127.0.0.1:5678:5678"
+    # Mount a CA bundle here if your Loki endpoint uses a private/internal CA.
+    # volumes:
+    #   - /path/to/your-ca.pem:/app/certs/loki-ca.pem:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5678/api/health')"]
       interval: 30s
       timeout: 3s
       retries: 3
       start_period: 40s
-    networks:
-      - aegis-network
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-
-volumes:
-  postgres_data:
-
-networks:
-  aegis-network:
-    driver: bridge

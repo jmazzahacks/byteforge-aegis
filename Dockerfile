@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies
-# CR_PAT needed for private GitHub dependencies (mazza-base)
+# CR_PAT needed for private GitHub dependencies (byteforge-loki-logging)
 ARG CR_PAT
 ENV CR_PAT=${CR_PAT}
 
