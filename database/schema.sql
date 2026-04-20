@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     site_id INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
     email VARCHAR(255) NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255),
     is_verified BOOLEAN DEFAULT FALSE,
     role user_role DEFAULT 'user',
     created_at BIGINT NOT NULL,
