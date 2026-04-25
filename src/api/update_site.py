@@ -74,6 +74,10 @@ def update_site(validated_data, site_id):
         site.webhook_secret = webhook_service.generate_webhook_secret()
     if validated_data.get('regenerate_tenant_api_key'):
         site.tenant_api_key = tenant_key_service.generate_tenant_api_key()
+    if 'mailgun_domain' in validated_data:
+        site.mailgun_domain = validated_data['mailgun_domain']
+    if 'mailgun_api_key' in validated_data:
+        site.mailgun_api_key = validated_data['mailgun_api_key']
 
     # Update timestamp
     site.updated_at = int(time.time())

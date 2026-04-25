@@ -17,7 +17,9 @@ CREATE TABLE IF NOT EXISTS sites (
     allow_self_registration BOOLEAN DEFAULT TRUE NOT NULL,
     webhook_url VARCHAR(512),
     webhook_secret VARCHAR(255),
-    tenant_api_key VARCHAR(64) NOT NULL
+    tenant_api_key VARCHAR(64) NOT NULL,
+    mailgun_domain VARCHAR(255),
+    mailgun_api_key VARCHAR(255)
 );
 
 CREATE INDEX idx_sites_domain ON sites(domain);

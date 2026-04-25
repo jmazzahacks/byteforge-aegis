@@ -16,6 +16,7 @@ def test_by_domain_returns_site_without_secrets(test_client, sample_site):
     assert data['domain'] == sample_site.domain
     assert 'webhook_secret' not in data
     assert 'tenant_api_key' not in data
+    assert 'mailgun_api_key' not in data
 
 
 def test_by_domain_unknown_returns_404(test_client, clean_database):

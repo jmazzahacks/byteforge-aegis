@@ -102,11 +102,11 @@ class DatabaseManager:
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO sites (name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO sites (name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
-                (site.name, site.domain, site.frontend_url, site.verification_redirect_url, site.email_from, site.email_from_name, site.created_at, site.updated_at, site.allow_self_registration, site.webhook_url, site.webhook_secret, site.tenant_api_key)
+                (site.name, site.domain, site.frontend_url, site.verification_redirect_url, site.email_from, site.email_from_name, site.created_at, site.updated_at, site.allow_self_registration, site.webhook_url, site.webhook_secret, site.tenant_api_key, site.mailgun_domain, site.mailgun_api_key)
             )
             site.id = cursor.fetchone()['id']
         return site
@@ -125,7 +125,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT id, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key FROM sites WHERE id = %s",
+                "SELECT id, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key FROM sites WHERE id = %s",
                 (site_id,)
             )
             row = cursor.fetchone()
@@ -145,7 +145,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT id, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key FROM sites WHERE domain = %s",
+                "SELECT id, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key FROM sites WHERE domain = %s",
                 (domain,)
             )
             row = cursor.fetchone()
@@ -165,10 +165,10 @@ class DatabaseManager:
             cursor.execute(
                 """
                 UPDATE sites
-                SET name = %s, domain = %s, frontend_url = %s, verification_redirect_url = %s, email_from = %s, email_from_name = %s, updated_at = %s, allow_self_registration = %s, webhook_url = %s, webhook_secret = %s, tenant_api_key = %s
+                SET name = %s, domain = %s, frontend_url = %s, verification_redirect_url = %s, email_from = %s, email_from_name = %s, updated_at = %s, allow_self_registration = %s, webhook_url = %s, webhook_secret = %s, tenant_api_key = %s, mailgun_domain = %s, mailgun_api_key = %s
                 WHERE id = %s
                 """,
-                (site.name, site.domain, site.frontend_url, site.verification_redirect_url, site.email_from, site.email_from_name, site.updated_at, site.allow_self_registration, site.webhook_url, site.webhook_secret, site.tenant_api_key, site.id)
+                (site.name, site.domain, site.frontend_url, site.verification_redirect_url, site.email_from, site.email_from_name, site.updated_at, site.allow_self_registration, site.webhook_url, site.webhook_secret, site.tenant_api_key, site.mailgun_domain, site.mailgun_api_key, site.id)
             )
         return site
 

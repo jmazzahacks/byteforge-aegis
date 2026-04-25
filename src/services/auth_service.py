@@ -74,7 +74,9 @@ class AuthService:
                         site_name=site.name,
                         frontend_url=site.frontend_url,
                         from_email=site.email_from,
-                        from_name=site.email_from_name
+                        from_name=site.email_from_name,
+                        mailgun_domain=site.mailgun_domain,
+                        mailgun_api_key=site.mailgun_api_key,
                     )
                 except Exception as e:
                     logger.error(f"Failed to send registration attempt email: {str(e)}")
@@ -109,7 +111,9 @@ class AuthService:
                 site_name=site.name,
                 frontend_url=site.frontend_url,
                 from_email=site.email_from,
-                from_name=site.email_from_name
+                from_name=site.email_from_name,
+                mailgun_domain=site.mailgun_domain,
+                mailgun_api_key=site.mailgun_api_key,
             )
         except Exception as e:
             logger.error(f"Failed to send verification email: {str(e)}")
@@ -332,7 +336,9 @@ class AuthService:
             site_name=site.name,
             frontend_url=site.frontend_url,
             from_email=site.email_from,
-            from_name=site.email_from_name
+            from_name=site.email_from_name,
+            mailgun_domain=site.mailgun_domain,
+            mailgun_api_key=site.mailgun_api_key,
         )
 
     def change_password(self, user_id: int, old_password: str, new_password: str) -> User:
@@ -400,7 +406,9 @@ class AuthService:
                     site_name=site.name,
                     frontend_url=site.frontend_url,
                     from_email=site.email_from,
-                    from_name=site.email_from_name
+                    from_name=site.email_from_name,
+                    mailgun_domain=site.mailgun_domain,
+                    mailgun_api_key=site.mailgun_api_key,
                 )
             except Exception as e:
                 logger.error(f"Failed to send password reset email: {str(e)}")
@@ -482,7 +490,9 @@ class AuthService:
                     site_name=site.name,
                     frontend_url=site.frontend_url,
                     from_email=site.email_from,
-                    from_name=site.email_from_name
+                    from_name=site.email_from_name,
+                    mailgun_domain=site.mailgun_domain,
+                    mailgun_api_key=site.mailgun_api_key,
                 )
             except Exception as e:
                 logger.error(f"Failed to send email change confirmation: {str(e)}")

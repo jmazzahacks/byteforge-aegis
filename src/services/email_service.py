@@ -13,12 +13,41 @@ class EmailService:
     """Service for sending emails via Mailgun"""
 
     def __init__(self):
-        """Initialize the email service with Mailgun API key and domain from config"""
+        """Initialize the email service. Per-site Mailgun config is resolved at send time."""
         config = get_config()
-        self.api_key = config.MAILGUN_API_KEY
-        self.domain = config.MAILGUN_DOMAIN
-        self.api_url = f"https://api.mailgun.net/v3/{self.domain}/messages"
         self.aegis_frontend_url = config.AEGIS_FRONTEND_URL.rstrip('/')
+
+    def _resolve_mailgun_config(
+        self,
+        site_mailgun_domain: Optional[str],
+        site_mailgun_api_key: Optional[str],
+        site_email_from: Optional[str] = None,
+    ) -> tuple[Optional[str], Optional[str]]:
+        """
+        Resolve which Mailgun domain + API key to use for a send.
+
+        Per-site values take priority. When either is null, falls back to the
+        global MAILGUN_DOMAIN / MAILGUN_API_KEY env vars (soft cutover).
+
+        Logs a warning when site_email_from's domain doesn't align with the
+        resolved Mailgun sending domain — DMARC will fail for that recipient
+        even though we still attempt the send.
+        """
+        config = get_config()
+        domain = site_mailgun_domain or config.MAILGUN_DOMAIN or None
+        api_key = site_mailgun_api_key or config.MAILGUN_API_KEY or None
+
+        if domain and site_email_from and '@' in site_email_from:
+            from_domain = site_email_from.rsplit('@', 1)[1].lower()
+            sending_domain = domain.lower()
+            if not (from_domain == sending_domain or from_domain.endswith('.' + sending_domain) or sending_domain.endswith('.' + from_domain)):
+                logger.warning(
+                    "Mailgun domain/from-address mismatch: from=%s sending_domain=%s "
+                    "— DMARC alignment will fail for this site",
+                    site_email_from, domain
+                )
+
+        return domain, api_key
 
     def send_email(
         self,
@@ -27,6 +56,8 @@ class EmailService:
         html_content: str,
         from_email: str,
         from_name: str,
+        mailgun_domain: Optional[str] = None,
+        mailgun_api_key: Optional[str] = None,
         text_content: Optional[str] = None
     ) -> bool:
         """
@@ -38,20 +69,28 @@ class EmailService:
             html_content: HTML content of the email
             from_email: Sender email address (site-specific)
             from_name: Sender display name (site-specific)
+            mailgun_domain: Per-site Mailgun sending domain. None falls back to global.
+            mailgun_api_key: Per-site Mailgun API key. None falls back to global.
             text_content: Plain text content (optional)
 
         Returns:
             bool: True if email sent successfully, False otherwise
         """
-        if not self.api_key:
-            logger.error("Mailgun API key not configured")
+        domain, api_key = self._resolve_mailgun_config(
+            mailgun_domain, mailgun_api_key, site_email_from=from_email
+        )
+
+        if not api_key:
+            logger.error("Mailgun API key not configured (site or global)")
             return False
 
-        if not self.domain:
-            logger.error("Mailgun domain not configured")
+        if not domain:
+            logger.error("Mailgun domain not configured (site or global)")
             return False
 
-        logger.info(f"Attempting to send email to {to_email} from {from_email}")
+        api_url = f"https://api.mailgun.net/v3/{domain}/messages"
+
+        logger.info(f"Attempting to send email to {to_email} from {from_email} via {domain}")
         logger.debug(f"Subject: {subject}")
 
         try:
@@ -72,8 +111,8 @@ class EmailService:
 
             # Send the request to Mailgun
             response = requests.post(
-                self.api_url,
-                auth=("api", self.api_key),
+                api_url,
+                auth=("api", api_key),
                 data=data,
                 timeout=10
             )
@@ -103,7 +142,9 @@ class EmailService:
         site_name: str,
         frontend_url: str,
         from_email: str,
-        from_name: str
+        from_name: str,
+        mailgun_domain: Optional[str] = None,
+        mailgun_api_key: Optional[str] = None
     ) -> bool:
         """
         Send email verification email.
@@ -150,7 +191,12 @@ class EmailService:
         If you didn't create an account, you can safely ignore this email.
         """
 
-        return self.send_email(to_email, subject, html_content, from_email, from_name, text_content)
+        return self.send_email(
+            to_email, subject, html_content, from_email, from_name,
+            mailgun_domain=mailgun_domain,
+            mailgun_api_key=mailgun_api_key,
+            text_content=text_content,
+        )
 
     def send_password_reset_email(
         self,
@@ -159,7 +205,9 @@ class EmailService:
         site_name: str,
         frontend_url: str,
         from_email: str,
-        from_name: str
+        from_name: str,
+        mailgun_domain: Optional[str] = None,
+        mailgun_api_key: Optional[str] = None
     ) -> bool:
         """
         Send password reset email.
@@ -209,7 +257,12 @@ class EmailService:
         If you didn't request a password reset, you can safely ignore this email.
         """
 
-        return self.send_email(to_email, subject, html_content, from_email, from_name, text_content)
+        return self.send_email(
+            to_email, subject, html_content, from_email, from_name,
+            mailgun_domain=mailgun_domain,
+            mailgun_api_key=mailgun_api_key,
+            text_content=text_content,
+        )
 
     def send_email_change_confirmation(
         self,
@@ -218,7 +271,9 @@ class EmailService:
         site_name: str,
         frontend_url: str,
         from_email: str,
-        from_name: str
+        from_name: str,
+        mailgun_domain: Optional[str] = None,
+        mailgun_api_key: Optional[str] = None
     ) -> bool:
         """
         Send email change confirmation email.
@@ -268,7 +323,12 @@ class EmailService:
         If you didn't request this change, please ignore this email and contact support immediately.
         """
 
-        return self.send_email(to_email, subject, html_content, from_email, from_name, text_content)
+        return self.send_email(
+            to_email, subject, html_content, from_email, from_name,
+            mailgun_domain=mailgun_domain,
+            mailgun_api_key=mailgun_api_key,
+            text_content=text_content,
+        )
 
 
     def send_registration_attempt_email(
@@ -277,7 +337,9 @@ class EmailService:
         site_name: str,
         frontend_url: str,
         from_email: str,
-        from_name: str
+        from_name: str,
+        mailgun_domain: Optional[str] = None,
+        mailgun_api_key: Optional[str] = None
     ) -> bool:
         """
         Send notification when someone attempts to register with an existing email.
@@ -331,7 +393,12 @@ class EmailService:
         Your account remains secure and unchanged.
         """
 
-        return self.send_email(to_email, subject, html_content, from_email, from_name, text_content)
+        return self.send_email(
+            to_email, subject, html_content, from_email, from_name,
+            mailgun_domain=mailgun_domain,
+            mailgun_api_key=mailgun_api_key,
+            text_content=text_content,
+        )
 
 
 # Singleton instance

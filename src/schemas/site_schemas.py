@@ -14,6 +14,8 @@ class CreateSiteRequestSchema(Schema):
     email_from_name = fields.String(required=True, validate=validate.Length(min=1, max=255))
     allow_self_registration = fields.Boolean(load_default=True)
     webhook_url = fields.Url(required=False, allow_none=True)
+    mailgun_domain = fields.String(required=False, allow_none=True, validate=validate.Length(max=255))
+    mailgun_api_key = fields.String(required=False, allow_none=True, validate=validate.Length(max=255))
 
 
 class UpdateSiteRequestSchema(Schema):
@@ -28,6 +30,8 @@ class UpdateSiteRequestSchema(Schema):
     webhook_url = fields.Url(required=False, allow_none=True)
     regenerate_webhook_secret = fields.Boolean(required=False)
     regenerate_tenant_api_key = fields.Boolean(required=False)
+    mailgun_domain = fields.String(required=False, allow_none=True, validate=validate.Length(max=255))
+    mailgun_api_key = fields.String(required=False, allow_none=True, validate=validate.Length(max=255))
 
 
 class SiteResponseSchema(Schema):
@@ -45,6 +49,8 @@ class SiteResponseSchema(Schema):
     webhook_url = fields.Url(allow_none=True)
     webhook_secret = fields.String(allow_none=True)
     tenant_api_key = fields.String(allow_none=True)
+    mailgun_domain = fields.String(allow_none=True)
+    mailgun_api_key = fields.String(allow_none=True)
 
 
 class PublicSiteResponseSchema(Schema):

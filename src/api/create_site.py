@@ -50,7 +50,9 @@ def create_site(validated_data):
         allow_self_registration=validated_data.get('allow_self_registration', True),
         webhook_url=webhook_url,
         webhook_secret=webhook_secret,
-        tenant_api_key=tenant_key_service.generate_tenant_api_key()
+        tenant_api_key=tenant_key_service.generate_tenant_api_key(),
+        mailgun_domain=validated_data.get('mailgun_domain'),
+        mailgun_api_key=validated_data.get('mailgun_api_key'),
     )
 
     try:
