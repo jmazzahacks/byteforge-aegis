@@ -5,11 +5,13 @@ from flask import Blueprint, jsonify
 from services.auth_service import auth_service
 from schemas.auth_schemas import RegisterRequestSchema
 from utils.validators import validate_request
+from utils.tenant_api_key_middleware import require_tenant_api_key
 
 register_bp = Blueprint('register', __name__)
 
 
 @register_bp.route('/api/auth/register', methods=['POST'])
+@require_tenant_api_key
 @validate_request(RegisterRequestSchema)
 def register(validated_data: dict):
     """

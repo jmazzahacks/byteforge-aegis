@@ -5,11 +5,13 @@ from flask import Blueprint, jsonify
 from services.auth_service import auth_service
 from schemas.auth_schemas import RequestPasswordResetSchema
 from utils.validators import validate_request
+from utils.tenant_api_key_middleware import require_tenant_api_key
 
 request_password_reset_bp = Blueprint('request_password_reset', __name__)
 
 
 @request_password_reset_bp.route('/api/auth/request-password-reset', methods=['POST'])
+@require_tenant_api_key
 @validate_request(RequestPasswordResetSchema)
 def request_password_reset(validated_data):
     """

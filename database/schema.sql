@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS sites (
     updated_at BIGINT NOT NULL,
     allow_self_registration BOOLEAN DEFAULT TRUE NOT NULL,
     webhook_url VARCHAR(512),
-    webhook_secret VARCHAR(255)
+    webhook_secret VARCHAR(255),
+    tenant_api_key VARCHAR(64) NOT NULL
 );
 
 CREATE INDEX idx_sites_domain ON sites(domain);

@@ -6,6 +6,7 @@ import time
 from database import db_manager
 from schemas.site_schemas import UpdateSiteRequestSchema, SiteResponseSchema
 from services.webhook_service import webhook_service
+from services.tenant_key_service import tenant_key_service
 from utils.validators import validate_request
 from utils.api_key_middleware import require_master_api_key
 
@@ -71,6 +72,8 @@ def update_site(validated_data, site_id):
             site.webhook_secret = None
     if validated_data.get('regenerate_webhook_secret') and site.webhook_url:
         site.webhook_secret = webhook_service.generate_webhook_secret()
+    if validated_data.get('regenerate_tenant_api_key'):
+        site.tenant_api_key = tenant_key_service.generate_tenant_api_key()
 
     # Update timestamp
     site.updated_at = int(time.time())

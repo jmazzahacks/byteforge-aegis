@@ -88,7 +88,8 @@ def test_admin_list_users_site_isolation(test_client, sample_site, admin_user, a
         email_from="noreply@other.example.com",
         email_from_name="Other Site",
         created_at=current_time,
-        updated_at=current_time
+        updated_at=current_time,
+        tenant_api_key="other_site_test_tenant_key"
     )
     other_site = db_manager.create_site(other_site)
 

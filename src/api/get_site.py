@@ -3,7 +3,7 @@ Get site endpoint.
 """
 from flask import Blueprint, jsonify, request
 from database import db_manager
-from schemas.site_schemas import SiteResponseSchema
+from schemas.site_schemas import SiteResponseSchema, PublicSiteResponseSchema
 from utils.api_key_middleware import require_master_api_key
 
 get_site_bp = Blueprint('get_site', __name__)
@@ -18,7 +18,7 @@ def get_site_by_domain():
         domain: Site domain
 
     Returns:
-        200: Site found
+        200: Site found (secrets excluded — this is a public endpoint)
         400: Missing domain parameter
         404: Site not found
     """
@@ -32,7 +32,7 @@ def get_site_by_domain():
     if site is None:
         return jsonify({'error': 'Site not found'}), 404
 
-    schema = SiteResponseSchema()
+    schema = PublicSiteResponseSchema()
     return jsonify(schema.dump(site)), 200
 
 

@@ -15,7 +15,8 @@ def test_create_site(clean_database):
         email_from="noreply@test.example.com",
         email_from_name="Test Site",
         created_at=current_time,
-        updated_at=current_time
+        updated_at=current_time,
+        tenant_api_key="test_create_site_tenant_key"
     )
 
     created_site = db_manager.create_site(site)

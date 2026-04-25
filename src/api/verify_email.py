@@ -5,11 +5,13 @@ from flask import Blueprint, jsonify
 from services.auth_service import auth_service
 from schemas.auth_schemas import VerifyEmailRequestSchema
 from utils.validators import validate_request
+from utils.tenant_api_key_middleware import require_tenant_api_key
 
 verify_email_bp = Blueprint('verify_email', __name__)
 
 
 @verify_email_bp.route('/api/auth/verify-email', methods=['POST'])
+@require_tenant_api_key
 @validate_request(VerifyEmailRequestSchema)
 def verify_email(validated_data: dict):
     """
@@ -29,6 +31,7 @@ def verify_email(validated_data: dict):
     try:
         result = auth_service.verify_email(
             token=validated_data['token'],
+            site_id=validated_data['site_id'],
             password=validated_data.get('password')
         )
         return jsonify(result.to_dict()), 200

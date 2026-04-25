@@ -37,7 +37,8 @@ def sample_site(clean_database):
         email_from="noreply@test.example.com",
         email_from_name="Test Site",
         created_at=current_time,
-        updated_at=current_time
+        updated_at=current_time,
+        tenant_api_key="test_tenant_api_key_64chars_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     )
     return db_manager.create_site(site)
 

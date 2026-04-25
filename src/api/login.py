@@ -5,11 +5,13 @@ from flask import Blueprint, jsonify
 from services.auth_service import auth_service
 from schemas.auth_schemas import LoginRequestSchema, LoginResultResponseSchema
 from utils.validators import validate_request
+from utils.tenant_api_key_middleware import require_tenant_api_key
 
 login_bp = Blueprint('login', __name__)
 
 
 @login_bp.route('/api/auth/login', methods=['POST'])
+@require_tenant_api_key
 @validate_request(LoginRequestSchema)
 def login(validated_data):
     """

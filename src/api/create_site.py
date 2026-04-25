@@ -7,6 +7,7 @@ from database import db_manager
 from byteforge_aegis_models import Site
 from schemas.site_schemas import CreateSiteRequestSchema, SiteResponseSchema
 from services.webhook_service import webhook_service
+from services.tenant_key_service import tenant_key_service
 from utils.validators import validate_request
 from utils.api_key_middleware import require_master_api_key
 
@@ -48,7 +49,8 @@ def create_site(validated_data):
         verification_redirect_url=validated_data.get('verification_redirect_url'),
         allow_self_registration=validated_data.get('allow_self_registration', True),
         webhook_url=webhook_url,
-        webhook_secret=webhook_secret
+        webhook_secret=webhook_secret,
+        tenant_api_key=tenant_key_service.generate_tenant_api_key()
     )
 
     try:

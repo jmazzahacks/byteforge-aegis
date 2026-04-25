@@ -33,12 +33,14 @@ class LoginRequestSchema(Schema):
 
 class VerifyEmailRequestSchema(Schema):
     """Schema for email verification request (with optional password for admin-created users)"""
+    site_id = fields.Integer(required=True)
     token = fields.String(required=True)
     password = fields.String(validate=validate.Length(min=8))  # Optional - required only for users without password
 
 
 class CheckVerificationTokenSchema(Schema):
     """Schema for checking verification token status"""
+    site_id = fields.Integer(required=True)
     token = fields.String(required=True)
 
 
@@ -56,6 +58,7 @@ class RequestPasswordResetSchema(Schema):
 
 class ResetPasswordRequestSchema(Schema):
     """Schema for password reset with token"""
+    site_id = fields.Integer(required=True)
     token = fields.String(required=True)
     new_password = fields.String(required=True, validate=validate.Length(min=8))
 

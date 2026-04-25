@@ -194,7 +194,7 @@ class AuthService:
 
         return LoginResult(auth_token=auth_token, refresh_token=result.new_refresh_token)
 
-    def check_verification_token(self, token: str) -> VerificationTokenStatus:
+    def check_verification_token(self, token: str, site_id: int) -> VerificationTokenStatus:
         """
         Check verification token status without consuming it.
 
@@ -202,27 +202,34 @@ class AuthService:
 
         Args:
             token: The email verification token
+            site_id: The site_id supplied by the caller; the token must belong
+                to a user in this site or the call is rejected. Prevents a
+                tenant_api_key holder from probing tokens for another site.
 
         Returns:
             VerificationTokenStatus: Contains password_required and email
 
         Raises:
-            ValueError: If token is invalid or expired
+            ValueError: If token is invalid, expired, or belongs to another site
         """
         user_id = token_service.check_email_verification_token(token)
         if not user_id:
             raise ValueError("Invalid or expired verification token")
 
         user = db_manager.find_user_by_id(user_id)
-        if not user:
-            raise ValueError("User not found")
+        if not user or user.site_id != site_id:
+            # Returning the same error as "invalid token" prevents probing
+            # whether a token exists for another site.
+            raise ValueError("Invalid or expired verification token")
 
         return VerificationTokenStatus(
             password_required=user.password_hash is None,
             email=user.email
         )
 
-    def verify_email(self, token: str, password: Optional[str] = None) -> VerificationResult:
+    def verify_email(
+        self, token: str, site_id: int, password: Optional[str] = None
+    ) -> VerificationResult:
         """
         Verify a user's email address using a verification token.
 
@@ -231,13 +238,17 @@ class AuthService:
 
         Args:
             token: The email verification token
+            site_id: The site_id supplied by the caller; the token must belong
+                to a user in this site or the call is rejected. Prevents a
+                tenant_api_key holder from consuming tokens for another site.
             password: Optional password to set (required for admin-created users)
 
         Returns:
             VerificationResult: Contains the updated user and redirect URL
 
         Raises:
-            ValueError: If token is invalid/expired, or password required but not provided
+            ValueError: If token is invalid/expired, belongs to another site,
+                or password required but not provided
         """
         # First, check the token without consuming it
         user_id = token_service.check_email_verification_token(token)
@@ -246,8 +257,8 @@ class AuthService:
 
         # Get user to check if password is required
         user = db_manager.find_user_by_id(user_id)
-        if not user:
-            raise ValueError("User not found")
+        if not user or user.site_id != site_id:
+            raise ValueError("Invalid or expired verification token")
 
         # Check if password is required BEFORE consuming the token
         if user.password_hash is None:
@@ -396,27 +407,31 @@ class AuthService:
 
         return reset_token.token
 
-    def reset_password(self, token: str, new_password: str) -> User:
+    def reset_password(self, token: str, site_id: int, new_password: str) -> User:
         """
         Reset a user's password using a password reset token.
 
         Args:
             token: The password reset token
+            site_id: The site_id supplied by the caller; the token must belong
+                to a user in this site or the call is rejected. Prevents a
+                tenant_api_key holder from consuming reset tokens for another site.
             new_password: The new password to set
 
         Returns:
             User: The updated user
 
         Raises:
-            ValueError: If token is invalid, expired, or already used
+            ValueError: If token is invalid, expired, already used, or belongs
+                to another site
         """
         user_id = token_service.validate_password_reset_token(token)
         if not user_id:
             raise ValueError("Invalid or expired reset token")
 
         user = db_manager.find_user_by_id(user_id)
-        if not user:
-            raise ValueError("User not found")
+        if not user or user.site_id != site_id:
+            raise ValueError("Invalid or expired reset token")
 
         # Hash new password
         user.password_hash = password_service.hash_password(new_password)

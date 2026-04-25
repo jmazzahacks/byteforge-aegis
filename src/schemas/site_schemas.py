@@ -27,10 +27,11 @@ class UpdateSiteRequestSchema(Schema):
     allow_self_registration = fields.Boolean(required=False)
     webhook_url = fields.Url(required=False, allow_none=True)
     regenerate_webhook_secret = fields.Boolean(required=False)
+    regenerate_tenant_api_key = fields.Boolean(required=False)
 
 
 class SiteResponseSchema(Schema):
-    """Schema for site response"""
+    """Schema for site response (admin-only — includes secrets)."""
     id = fields.Integer()
     name = fields.String()
     domain = fields.String()
@@ -43,3 +44,18 @@ class SiteResponseSchema(Schema):
     allow_self_registration = fields.Boolean()
     webhook_url = fields.Url(allow_none=True)
     webhook_secret = fields.String(allow_none=True)
+    tenant_api_key = fields.String(allow_none=True)
+
+
+class PublicSiteResponseSchema(Schema):
+    """Schema for site response on public endpoints. Excludes secrets."""
+    id = fields.Integer()
+    name = fields.String()
+    domain = fields.String()
+    frontend_url = fields.Url()
+    verification_redirect_url = fields.Url(allow_none=True)
+    email_from = fields.Email()
+    email_from_name = fields.String()
+    created_at = fields.Integer()
+    updated_at = fields.Integer()
+    allow_self_registration = fields.Boolean()

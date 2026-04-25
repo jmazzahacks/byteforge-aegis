@@ -214,7 +214,7 @@ def test_verify_email(sample_site):
         verification_token = result['token']
 
     # Verify email
-    result = auth_service.verify_email(verification_token)
+    result = auth_service.verify_email(verification_token, site_id=sample_site.id)
 
     assert result.user.is_verified is True
     assert result.user.id == user.id
@@ -256,7 +256,7 @@ def test_password_reset_flow(sample_site):
     assert reset_token is not None
 
     # Reset password
-    updated_user = auth_service.reset_password(reset_token, "new_reset_password")
+    updated_user = auth_service.reset_password(reset_token, site_id=sample_site.id, new_password="new_reset_password")
 
     assert updated_user.id == user.id
     assert password_service.verify_password("new_reset_password", updated_user.password_hash) is True
