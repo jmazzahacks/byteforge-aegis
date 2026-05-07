@@ -11,8 +11,8 @@ Multi-tenant authentication service built with Flask and PostgreSQL. Provides se
 - **Password Management** - Password changes, reset via email
 - **Email Management** - Change email with verification
 - **Role-Based Authorization** - User and admin roles per site
-- **API Key Authentication** - Master API key for administrative operations
-- **Email Integration** - Mailgun integration for transactional emails
+- **API Key Authentication** - Master API key for administrative operations; per-site tenant API key gates all public auth endpoints to prevent abuse
+- **Email Integration** - Mailgun integration for transactional emails (global config with optional per-site overrides)
 - **Token-Based Sessions** - Secure authentication tokens with expiration
 - **Refresh Tokens** - Long-lived refresh tokens for seamless session extension
 - **Webhooks** - HMAC-signed event notifications to tenant sites (e.g., post-verification callbacks)
@@ -116,6 +116,9 @@ curl -X POST http://localhost:5678/api/sites \
 - `verification_redirect_url` - If not set, users redirect to `frontend_url` after email verification
 - `allow_self_registration` - Defaults to `true`. Set to `false` to disable public registration (admin registration still works)
 - `webhook_url` - URL to receive event notifications (e.g., `https://example.com/webhooks/aegis`). A `webhook_secret` is auto-generated for HMAC signature verification
+- `mailgun_domain` / `mailgun_api_key` - Per-site overrides for the global Mailgun config. When both are set, this site's transactional emails are sent via the override account/domain (e.g., for white-label sender reputation isolation). When unset, the global `MAILGUN_*` env vars are used.
+
+A `tenant_api_key` is auto-generated on every site create — it gates all public auth endpoints (see [Tenant API Key Gate](#tenant-api-key-gate) below) and is returned in the create response. Record it; the tenant operator must set it as `AEGIS_TENANT_API_KEY` server-side.
 
 #### List All Sites
 
@@ -133,7 +136,7 @@ curl http://localhost:5678/api/sites/{site_id} \
 
 #### Get Site by Domain (Public)
 
-This endpoint is public to allow frontend applications to bootstrap by looking up their site configuration.
+This endpoint is public to allow frontend applications to bootstrap by looking up their site configuration. The response strips secrets (`tenant_api_key`, `webhook_secret`, `mailgun_api_key`) — only the admin-authenticated `GET /api/sites/{site_id}` returns them.
 
 ```bash
 curl "http://localhost:5678/api/sites/by-domain?domain=example.com"
@@ -171,6 +174,16 @@ curl -X PUT http://localhost:5678/api/sites/{site_id} \
 ```
 
 When disabled, `/api/auth/register` returns an error. Admin registration via `/api/admin/register` is unaffected.
+
+**Rotate the tenant API key:**
+```bash
+curl -X PUT http://localhost:5678/api/sites/{site_id} \
+  -H "X-API-Key: your-master-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"regenerate_tenant_api_key": true}'
+```
+
+The response includes the new `tenant_api_key`. Tenant operators must update their `AEGIS_TENANT_API_KEY` env var and redeploy — until they do, all public auth calls return 401.
 
 ### Webhooks
 
@@ -244,6 +257,26 @@ curl -X PUT http://localhost:5678/api/sites/{site_id} \
 
 Webhook deliveries are logged in the `webhook_events` table for debugging. Delivery happens on a background thread and never blocks the verification response. Failed deliveries do not affect user verification.
 
+### Tenant API Key Gate
+
+To prevent abuse (bot-driven Mailgun spend, email-bombing, DB pollution), all **public auth endpoints** are gated by a per-site secret in the `X-Tenant-Api-Key` header. Tenant frontends **must not** call these endpoints directly from the browser — instead, the tenant runs a backend that holds the key server-side and proxies the browser's auth calls through it.
+
+**Gated endpoints (require `X-Tenant-Api-Key`):**
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/request-password-reset`
+- `POST /api/auth/reset-password`
+- `POST /api/auth/verify-email`
+- `POST /api/auth/check-verification-token`
+- `GET /api/sites/{site_id}/users/{user_id}` (server-to-server user lookup)
+
+**Not gated** (Bearer-token-protected, not abuse-prone): `me`, `change-password`, `logout`, `refresh`, `confirm-email-change`. Admin-only endpoints continue to use `MASTER_API_KEY`.
+
+Any failure (missing header, wrong key, missing/unknown `site_id`, cross-site probe) returns the same uniform `401 {"error": "Invalid or missing tenant API key"}` to prevent enumeration. The decorator reads `site_id` from the JSON body for POST routes, or from the URL path for GET routes.
+
+The key is auto-generated when a site is created and is included in the create-site response. Rotate it with `regenerate_tenant_api_key: true` (see [Update Site](#update-site)).
+
 ### Authentication
 
 #### Login
@@ -251,6 +284,7 @@ Webhook deliveries are logged in the `webhook_events` table for debugging. Deliv
 ```bash
 curl -X POST http://localhost:5678/api/auth/login \
   -H "Content-Type: application/json" \
+  -H "X-Tenant-Api-Key: your-tenant-api-key" \
   -d '{"site_id": 1, "email": "user@example.com", "password": "password"}'
 ```
 
@@ -266,6 +300,54 @@ curl -X POST http://localhost:5678/api/auth/refresh \
 
 Returns new `auth_token` and rotated `refresh_token`. Token rotation detects theft by revoking all tokens if a used token is reused after the grace period.
 
+#### Current User (`/me`)
+
+Resolve a bearer token to the owning user — useful for downstream services that need to know who's calling.
+
+```bash
+curl http://localhost:5678/api/auth/me \
+  -H "Authorization: Bearer <auth_token>"
+```
+
+#### Logout
+
+```bash
+curl -X POST http://localhost:5678/api/auth/logout \
+  -H "Content-Type: application/json" \
+  -d '{"token": "<auth_token>"}'
+```
+
+#### Request Password Reset
+
+```bash
+curl -X POST http://localhost:5678/api/auth/request-password-reset \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Api-Key: your-tenant-api-key" \
+  -d '{"site_id": 1, "email": "user@example.com"}'
+```
+
+Returns a uniform success message regardless of whether the email exists (anti-enumeration). Sends a reset email if the address is registered.
+
+#### Reset Password
+
+```bash
+curl -X POST http://localhost:5678/api/auth/reset-password \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Api-Key: your-tenant-api-key" \
+  -d '{"site_id": 1, "token": "reset-token-from-email", "new_password": "new-password"}'
+```
+
+#### Get User by ID (Server-to-Server)
+
+Resolve an Aegis `user_id` to a user record (including `role`) for backend authorization checks — for example, when an inbound API key in a tenant service maps to an Aegis user_id and the service needs to know if the caller is admin vs. user.
+
+```bash
+curl http://localhost:5678/api/sites/1/users/42 \
+  -H "X-Tenant-Api-Key: your-tenant-api-key"
+```
+
+Scoped to the requesting tenant's site: cross-site probes return the same uniform 401 as missing-key failures.
+
 ### User Management
 
 User management endpoints are scoped to sites.
@@ -280,6 +362,7 @@ Allow users to register themselves. Password is optional - if omitted, users set
 # With password (traditional flow)
 curl -X POST http://localhost:5678/api/auth/register \
   -H "Content-Type: application/json" \
+  -H "X-Tenant-Api-Key: your-tenant-api-key" \
   -d '{
     "site_id": 1,
     "email": "user@example.com",
@@ -289,6 +372,7 @@ curl -X POST http://localhost:5678/api/auth/register \
 # Without password (simpler UX - user sets password via email)
 curl -X POST http://localhost:5678/api/auth/register \
   -H "Content-Type: application/json" \
+  -H "X-Tenant-Api-Key: your-tenant-api-key" \
   -d '{
     "site_id": 1,
     "email": "user@example.com"
@@ -325,7 +409,8 @@ Check if a verification token is valid and whether password setup is required (u
 ```bash
 curl -X POST http://localhost:5678/api/auth/check-verification-token \
   -H "Content-Type: application/json" \
-  -d '{"token": "verification-token-here"}'
+  -H "X-Tenant-Api-Key: your-tenant-api-key" \
+  -d '{"site_id": 1, "token": "verification-token-here"}'
 ```
 
 Response:
@@ -344,7 +429,9 @@ Verify email and optionally set password for admin-created users.
 # For admin-created users (password required)
 curl -X POST http://localhost:5678/api/auth/verify-email \
   -H "Content-Type: application/json" \
+  -H "X-Tenant-Api-Key: your-tenant-api-key" \
   -d '{
+    "site_id": 1,
     "token": "verification-token-here",
     "password": "user-chosen-password"
   }'
@@ -352,7 +439,8 @@ curl -X POST http://localhost:5678/api/auth/verify-email \
 # For self-registered users (password optional, already set)
 curl -X POST http://localhost:5678/api/auth/verify-email \
   -H "Content-Type: application/json" \
-  -d '{"token": "verification-token-here"}'
+  -H "X-Tenant-Api-Key: your-tenant-api-key" \
+  -d '{"site_id": 1, "token": "verification-token-here"}'
 ```
 
 ## Admin Scripts
