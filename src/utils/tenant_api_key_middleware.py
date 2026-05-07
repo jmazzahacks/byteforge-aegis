@@ -11,16 +11,23 @@ from flask import request, jsonify
 from database import db_manager
 
 
-_UNIFORM_ERROR = ({'error': 'Invalid or missing tenant API key'}, 401)
+# Public so handlers gated by this decorator can return the same 401 body
+# from their own failure paths (e.g. cross-tenant probes), preserving the
+# anti-enumeration property across the middleware/handler boundary.
+TENANT_API_KEY_ERROR_BODY = {'error': 'Invalid or missing tenant API key'}
+TENANT_API_KEY_ERROR_STATUS = 401
+
+_UNIFORM_ERROR = (TENANT_API_KEY_ERROR_BODY, TENANT_API_KEY_ERROR_STATUS)
 
 
 def require_tenant_api_key(func):
     """
     Decorator that gates a route on the X-Tenant-Api-Key header.
 
-    Reads `site_id` from the JSON body, looks up the site, and compares
-    the supplied header value against the stored tenant_api_key using
-    constant-time comparison. Any failure (missing header, missing
+    Reads `site_id` from the JSON body (POST routes) or from `view_args`
+    (GET routes with `<int:site_id>` in the path), looks up the site, and
+    compares the supplied header value against the stored tenant_api_key
+    using constant-time comparison. Any failure (missing header, missing
     site_id, unknown site, mismatch) returns the same 401 error body so
     response shape can't be used to distinguish failure modes. Note that
     response timing is *not* guaranteed equivalent — the early-return
@@ -35,6 +42,8 @@ def require_tenant_api_key(func):
 
         body = request.get_json(silent=True) or {}
         site_id = body.get('site_id')
+        if not isinstance(site_id, int):
+            site_id = (request.view_args or {}).get('site_id')
         if not isinstance(site_id, int):
             return jsonify(_UNIFORM_ERROR[0]), _UNIFORM_ERROR[1]
 

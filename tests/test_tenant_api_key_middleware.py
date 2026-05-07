@@ -107,3 +107,24 @@ def test_valid_key_passes_through_to_handler(test_client, sample_site):
     )
     # Should pass the gate. Register returns 201 on success.
     assert response.status_code == 201
+
+
+def test_path_site_id_fallback_for_get(test_client, sample_site, sample_user):
+    """For GET routes (no JSON body), middleware reads site_id from view_args."""
+    response = test_client.get(
+        f'/api/sites/{sample_site.id}/users/{sample_user.id}',
+        headers={'X-Tenant-Api-Key': sample_site.tenant_api_key},
+    )
+    # Passing the gate means we reach the handler; sample_user belongs to
+    # sample_site so we get 200.
+    assert response.status_code == 200
+
+
+def test_path_site_id_fallback_missing_returns_401(test_client, sample_site):
+    """GET against a path-based route with no matching site → uniform 401."""
+    response = test_client.get(
+        f'/api/sites/999999/users/1',
+        headers={'X-Tenant-Api-Key': sample_site.tenant_api_key},
+    )
+    assert response.status_code == 401
+    assert UNIFORM_ERROR_FRAGMENT in response.get_json()['error'].lower()
