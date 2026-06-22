@@ -23,6 +23,8 @@ class User(BaseUser):
         return cls(
             id=data['id'],
             site_id=data['site_id'],
+            uuid=data.get('uuid'),
+            site_uuid=data.get('site_uuid'),
             email=data['email'],
             password_hash=data.get('password_hash'),
             is_verified=data['is_verified'],

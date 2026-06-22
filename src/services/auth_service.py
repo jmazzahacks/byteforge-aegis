@@ -291,6 +291,8 @@ class AuthService:
             event_type="user.verified",
             site_id=site.id,
             user_id=updated_user.id,
+            site_uuid=site.uuid,
+            user_uuid=updated_user.uuid,
             email=updated_user.email,
             aegis_role=updated_user.role.value,
             timestamp=int(time.time())

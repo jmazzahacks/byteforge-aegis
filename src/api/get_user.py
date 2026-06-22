@@ -7,8 +7,8 @@ the tenant's own site by the tenant API key.
 """
 from flask import Blueprint, jsonify
 
-from database import db_manager
 from schemas.auth_schemas import UserResponseSchema
+from utils.identifiers import resolve_site, resolve_user
 from utils.tenant_api_key_middleware import (
     TENANT_API_KEY_ERROR_BODY,
     TENANT_API_KEY_ERROR_STATUS,
@@ -19,25 +19,27 @@ from utils.tenant_api_key_middleware import (
 get_user_bp = Blueprint('get_user', __name__)
 
 
-@get_user_bp.route('/api/sites/<int:site_id>/users/<int:user_id>', methods=['GET'])
+@get_user_bp.route('/api/sites/<site_id>/users/<user_id>', methods=['GET'])
 @require_tenant_api_key
-def get_user_by_id(site_id: int, user_id: int):
+def get_user_by_id(site_id: str, user_id: str):
     """
-    Get a single user by ID, scoped to the requesting tenant's site.
+    Get a single user by id, scoped to the requesting tenant's site.
 
-    Requires X-Tenant-Api-Key header matching the site_id in the path.
+    Requires X-Tenant-Api-Key header matching the site in the path. Both
+    site_id and user_id may be supplied as an integer id or a UUID.
 
     Path parameters:
-        site_id: Site ID (must match the supplied tenant API key)
-        user_id: User ID to look up
+        site_id: Site identifier (must match the supplied tenant API key)
+        user_id: User identifier to look up
 
     Returns:
-        200: User record (id, site_id, email, is_verified, role, timestamps)
+        200: User record (id, uuid, site_id, site_uuid, email, role, timestamps)
         401: Missing/invalid tenant API key, unknown user, or user belongs
              to a different site (uniform body to prevent enumeration)
     """
-    user = db_manager.find_user_by_id(user_id)
-    if user is None or user.site_id != site_id:
+    site = resolve_site(site_id)
+    user = resolve_user(user_id)
+    if user is None or site is None or user.site_id != site.id:
         return jsonify(TENANT_API_KEY_ERROR_BODY), TENANT_API_KEY_ERROR_STATUS
 
     schema = UserResponseSchema()

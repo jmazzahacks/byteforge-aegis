@@ -8,7 +8,7 @@ gated public auth routes (register, login, password reset, etc.).
 import hmac
 from functools import wraps
 from flask import request, jsonify
-from database import db_manager
+from utils.identifiers import resolve_site
 
 
 # Public so handlers gated by this decorator can return the same 401 body
@@ -25,14 +25,14 @@ def require_tenant_api_key(func):
     Decorator that gates a route on the X-Tenant-Api-Key header.
 
     Reads `site_id` from the JSON body (POST routes) or from `view_args`
-    (GET routes with `<int:site_id>` in the path), looks up the site, and
-    compares the supplied header value against the stored tenant_api_key
-    using constant-time comparison. Any failure (missing header, missing
-    site_id, unknown site, mismatch) returns the same 401 error body so
-    response shape can't be used to distinguish failure modes. Note that
-    response timing is *not* guaranteed equivalent — the early-return
-    paths skip the DB lookup. The threat model is automated abuse, not
-    nation-state timing analysis.
+    (GET routes with `<site_id>` in the path) — accepting either an integer
+    id or a UUID — resolves the site, and compares the supplied header value
+    against the stored tenant_api_key using constant-time comparison. Any
+    failure (missing header, missing site_id, unknown site, mismatch) returns
+    the same 401 error body so response shape can't be used to distinguish
+    failure modes. Note that response timing is *not* guaranteed equivalent —
+    the early-return paths skip the DB lookup. The threat model is automated
+    abuse, not nation-state timing analysis.
     """
     @wraps(func)
     def wrapper(*args, **kwargs):
@@ -41,13 +41,11 @@ def require_tenant_api_key(func):
             return jsonify(_UNIFORM_ERROR[0]), _UNIFORM_ERROR[1]
 
         body = request.get_json(silent=True) or {}
-        site_id = body.get('site_id')
-        if not isinstance(site_id, int):
-            site_id = (request.view_args or {}).get('site_id')
-        if not isinstance(site_id, int):
-            return jsonify(_UNIFORM_ERROR[0]), _UNIFORM_ERROR[1]
+        site_identifier = body.get('site_id')
+        if site_identifier is None:
+            site_identifier = (request.view_args or {}).get('site_id')
 
-        site = db_manager.find_site_by_id(site_id)
+        site = resolve_site(site_identifier)
         if site is None or not site.tenant_api_key:
             return jsonify(_UNIFORM_ERROR[0]), _UNIFORM_ERROR[1]
 

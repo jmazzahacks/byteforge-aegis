@@ -1,4 +1,11 @@
 -- ByteForge Aegis Database Schema (Multi-tenant Authentication Service)
+--
+-- Identifier migration (int -> UUID), phase 1 (expand):
+-- Every table carries BOTH a legacy integer id/FK and a UUID equivalent.
+-- The UUID columns are the foreign-key targets (source of truth); the integer
+-- columns remain for backward compatibility while tenants migrate, and will be
+-- dropped at contraction. UUIDs are generated application-side (UUIDv7) since
+-- PostgreSQL cannot generate v7 natively before PG18.
 
 -- User role enumeration
 CREATE TYPE user_role AS ENUM ('user', 'admin');
@@ -6,6 +13,7 @@ CREATE TYPE user_role AS ENUM ('user', 'admin');
 -- Sites table (tenants/websites)
 CREATE TABLE IF NOT EXISTS sites (
     id SERIAL PRIMARY KEY,
+    uuid UUID UNIQUE NOT NULL,
     name VARCHAR(255) NOT NULL,
     domain VARCHAR(255) UNIQUE NOT NULL,
     frontend_url VARCHAR(255) NOT NULL,
@@ -27,7 +35,9 @@ CREATE INDEX idx_sites_domain ON sites(domain);
 -- Users table (scoped to sites)
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
+    uuid UUID UNIQUE NOT NULL,
     site_id INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    site_uuid UUID NOT NULL REFERENCES sites(uuid) ON DELETE CASCADE,
     email VARCHAR(255) NOT NULL,
     password_hash VARCHAR(255),
     is_verified BOOLEAN DEFAULT FALSE,
@@ -38,6 +48,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE INDEX idx_users_site_id ON users(site_id);
+CREATE INDEX idx_users_site_uuid ON users(site_uuid);
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_site_email ON users(site_id, email);
 
@@ -45,7 +56,9 @@ CREATE INDEX idx_users_site_email ON users(site_id, email);
 CREATE TABLE IF NOT EXISTS auth_tokens (
     id SERIAL PRIMARY KEY,
     site_id INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    site_uuid UUID NOT NULL REFERENCES sites(uuid) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_uuid UUID NOT NULL REFERENCES users(uuid) ON DELETE CASCADE,
     token VARCHAR(255) UNIQUE NOT NULL,
     expires_at BIGINT NOT NULL,
     created_at BIGINT NOT NULL
@@ -53,14 +66,18 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
 
 CREATE INDEX idx_auth_tokens_token ON auth_tokens(token);
 CREATE INDEX idx_auth_tokens_user_id ON auth_tokens(user_id);
+CREATE INDEX idx_auth_tokens_user_uuid ON auth_tokens(user_uuid);
 CREATE INDEX idx_auth_tokens_site_id ON auth_tokens(site_id);
+CREATE INDEX idx_auth_tokens_site_uuid ON auth_tokens(site_uuid);
 CREATE INDEX idx_auth_tokens_expires_at ON auth_tokens(expires_at);
 
 -- Refresh tokens table (for long-lived session refresh)
 CREATE TABLE IF NOT EXISTS refresh_tokens (
     id SERIAL PRIMARY KEY,
     site_id INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    site_uuid UUID NOT NULL REFERENCES sites(uuid) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_uuid UUID NOT NULL REFERENCES users(uuid) ON DELETE CASCADE,
     token VARCHAR(255) UNIQUE NOT NULL,
     family_id VARCHAR(255) NOT NULL,
     expires_at BIGINT NOT NULL,
@@ -71,7 +88,9 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 
 CREATE INDEX idx_refresh_tokens_token ON refresh_tokens(token);
 CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
+CREATE INDEX idx_refresh_tokens_user_uuid ON refresh_tokens(user_uuid);
 CREATE INDEX idx_refresh_tokens_site_id ON refresh_tokens(site_id);
+CREATE INDEX idx_refresh_tokens_site_uuid ON refresh_tokens(site_uuid);
 CREATE INDEX idx_refresh_tokens_family_id ON refresh_tokens(family_id);
 CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
 
@@ -79,7 +98,9 @@ CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
 CREATE TABLE IF NOT EXISTS email_verification_tokens (
     id SERIAL PRIMARY KEY,
     site_id INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    site_uuid UUID NOT NULL REFERENCES sites(uuid) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_uuid UUID NOT NULL REFERENCES users(uuid) ON DELETE CASCADE,
     token VARCHAR(255) UNIQUE NOT NULL,
     expires_at BIGINT NOT NULL,
     created_at BIGINT NOT NULL
@@ -87,13 +108,17 @@ CREATE TABLE IF NOT EXISTS email_verification_tokens (
 
 CREATE INDEX idx_email_verification_tokens_token ON email_verification_tokens(token);
 CREATE INDEX idx_email_verification_tokens_user_id ON email_verification_tokens(user_id);
+CREATE INDEX idx_email_verification_tokens_user_uuid ON email_verification_tokens(user_uuid);
 CREATE INDEX idx_email_verification_tokens_site_id ON email_verification_tokens(site_id);
+CREATE INDEX idx_email_verification_tokens_site_uuid ON email_verification_tokens(site_uuid);
 
 -- Password reset tokens table
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
     id SERIAL PRIMARY KEY,
     site_id INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    site_uuid UUID NOT NULL REFERENCES sites(uuid) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_uuid UUID NOT NULL REFERENCES users(uuid) ON DELETE CASCADE,
     token VARCHAR(255) UNIQUE NOT NULL,
     expires_at BIGINT NOT NULL,
     created_at BIGINT NOT NULL,
@@ -102,13 +127,17 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
 
 CREATE INDEX idx_password_reset_tokens_token ON password_reset_tokens(token);
 CREATE INDEX idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
+CREATE INDEX idx_password_reset_tokens_user_uuid ON password_reset_tokens(user_uuid);
 CREATE INDEX idx_password_reset_tokens_site_id ON password_reset_tokens(site_id);
+CREATE INDEX idx_password_reset_tokens_site_uuid ON password_reset_tokens(site_uuid);
 
 -- Email change requests table
 CREATE TABLE IF NOT EXISTS email_change_requests (
     id SERIAL PRIMARY KEY,
     site_id INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    site_uuid UUID NOT NULL REFERENCES sites(uuid) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_uuid UUID NOT NULL REFERENCES users(uuid) ON DELETE CASCADE,
     new_email VARCHAR(255) NOT NULL,
     token VARCHAR(255) UNIQUE NOT NULL,
     expires_at BIGINT NOT NULL,
@@ -117,12 +146,16 @@ CREATE TABLE IF NOT EXISTS email_change_requests (
 
 CREATE INDEX idx_email_change_requests_token ON email_change_requests(token);
 CREATE INDEX idx_email_change_requests_user_id ON email_change_requests(user_id);
+CREATE INDEX idx_email_change_requests_user_uuid ON email_change_requests(user_uuid);
 CREATE INDEX idx_email_change_requests_site_id ON email_change_requests(site_id);
+CREATE INDEX idx_email_change_requests_site_uuid ON email_change_requests(site_uuid);
 
 -- Webhook delivery log
 CREATE TABLE IF NOT EXISTS webhook_events (
     id SERIAL PRIMARY KEY,
+    uuid UUID UNIQUE NOT NULL,
     site_id INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    site_uuid UUID NOT NULL REFERENCES sites(uuid) ON DELETE CASCADE,
     event_type VARCHAR(50) NOT NULL,
     payload TEXT NOT NULL,
     response_status INTEGER,
@@ -132,5 +165,6 @@ CREATE TABLE IF NOT EXISTS webhook_events (
 );
 
 CREATE INDEX idx_webhook_events_site_id ON webhook_events(site_id);
+CREATE INDEX idx_webhook_events_site_uuid ON webhook_events(site_uuid);
 CREATE INDEX idx_webhook_events_event_type ON webhook_events(event_type);
 CREATE INDEX idx_webhook_events_created_at ON webhook_events(created_at);

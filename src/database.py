@@ -6,6 +6,7 @@ from typing import Generator, List, Optional
 from byteforge_aegis_models import WebhookEvent
 from models.user import User
 from config import get_config
+from utils.uuid7 import generate_uuid7
 
 
 class DatabaseManager:
@@ -99,14 +100,16 @@ class DatabaseManager:
         Returns:
             Site: The created site with auto-generated id
         """
+        if site.uuid is None:
+            site.uuid = generate_uuid7()
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO sites (name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO sites (uuid, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
-                (site.name, site.domain, site.frontend_url, site.verification_redirect_url, site.email_from, site.email_from_name, site.created_at, site.updated_at, site.allow_self_registration, site.webhook_url, site.webhook_secret, site.tenant_api_key, site.mailgun_domain, site.mailgun_api_key)
+                (site.uuid, site.name, site.domain, site.frontend_url, site.verification_redirect_url, site.email_from, site.email_from_name, site.created_at, site.updated_at, site.allow_self_registration, site.webhook_url, site.webhook_secret, site.tenant_api_key, site.mailgun_domain, site.mailgun_api_key)
             )
             site.id = cursor.fetchone()['id']
         return site
@@ -125,8 +128,28 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT id, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key FROM sites WHERE id = %s",
+                "SELECT id, uuid, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key FROM sites WHERE id = %s",
                 (site_id,)
+            )
+            row = cursor.fetchone()
+            return Site.from_dict(row) if row else None
+
+    def find_site_by_uuid(self, site_uuid: str) -> Optional['Site']:
+        """
+        Find a site by its UUID.
+
+        Args:
+            site_uuid: The site's UUID
+
+        Returns:
+            Optional[Site]: The site if found, None otherwise
+        """
+        from byteforge_aegis_models import Site
+
+        with self.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT id, uuid, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key FROM sites WHERE uuid = %s",
+                (site_uuid,)
             )
             row = cursor.fetchone()
             return Site.from_dict(row) if row else None
@@ -145,7 +168,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT id, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key FROM sites WHERE domain = %s",
+                "SELECT id, uuid, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key FROM sites WHERE domain = %s",
                 (domain,)
             )
             row = cursor.fetchone()
@@ -183,16 +206,20 @@ class DatabaseManager:
         Returns:
             User: The created user with auto-generated id
         """
+        if user.uuid is None:
+            user.uuid = generate_uuid7()
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO users (site_id, email, password_hash, is_verified, role, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
+                INSERT INTO users (uuid, site_id, site_uuid, email, password_hash, is_verified, role, created_at, updated_at)
+                VALUES (%s, %s, (SELECT uuid FROM sites WHERE id = %s), %s, %s, %s, %s, %s, %s)
+                RETURNING id, site_uuid
                 """,
-                (user.site_id, user.email, user.password_hash, user.is_verified, user.role.value, user.created_at, user.updated_at)
+                (user.uuid, user.site_id, user.site_id, user.email, user.password_hash, user.is_verified, user.role.value, user.created_at, user.updated_at)
             )
-            user.id = cursor.fetchone()['id']
+            row = cursor.fetchone()
+            user.id = row['id']
+            user.site_uuid = row['site_uuid']
         return user
 
     def find_user_by_id(self, user_id: int) -> Optional['User']:
@@ -209,8 +236,28 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT id, site_id, email, password_hash, is_verified, role, created_at, updated_at FROM users WHERE id = %s",
+                "SELECT id, uuid, site_id, site_uuid, email, password_hash, is_verified, role, created_at, updated_at FROM users WHERE id = %s",
                 (user_id,)
+            )
+            row = cursor.fetchone()
+            return User.from_dict(row) if row else None
+
+    def find_user_by_uuid(self, user_uuid: str) -> Optional['User']:
+        """
+        Find a user by their UUID.
+
+        Args:
+            user_uuid: The user's UUID
+
+        Returns:
+            Optional[User]: The user if found, None otherwise
+        """
+        from models.user import User
+
+        with self.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT id, uuid, site_id, site_uuid, email, password_hash, is_verified, role, created_at, updated_at FROM users WHERE uuid = %s",
+                (user_uuid,)
             )
             row = cursor.fetchone()
             return User.from_dict(row) if row else None
@@ -230,7 +277,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT id, site_id, email, password_hash, is_verified, role, created_at, updated_at FROM users WHERE site_id = %s AND email = %s",
+                "SELECT id, uuid, site_id, site_uuid, email, password_hash, is_verified, role, created_at, updated_at FROM users WHERE site_id = %s AND email = %s",
                 (site_id, email)
             )
             row = cursor.fetchone()
@@ -248,7 +295,7 @@ class DatabaseManager:
         """
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT id, site_id, email, password_hash, is_verified, role, created_at, updated_at FROM users WHERE site_id = %s ORDER BY id",
+                "SELECT id, uuid, site_id, site_uuid, email, password_hash, is_verified, role, created_at, updated_at FROM users WHERE site_id = %s ORDER BY id",
                 (site_id,)
             )
             rows = cursor.fetchall()
@@ -311,10 +358,10 @@ class DatabaseManager:
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO auth_tokens (site_id, user_id, token, expires_at, created_at)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO auth_tokens (site_id, user_id, site_uuid, user_uuid, token, expires_at, created_at)
+                VALUES (%s, %s, (SELECT uuid FROM sites WHERE id = %s), (SELECT uuid FROM users WHERE id = %s), %s, %s, %s)
                 """,
-                (auth_token.site_id, auth_token.user_id, auth_token.token, auth_token.expires_at, auth_token.created_at)
+                (auth_token.site_id, auth_token.user_id, auth_token.site_id, auth_token.user_id, auth_token.token, auth_token.expires_at, auth_token.created_at)
             )
         return auth_token
 
@@ -332,7 +379,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT site_id, user_id, token, expires_at, created_at FROM auth_tokens WHERE token = %s",
+                "SELECT site_id, user_id, site_uuid, user_uuid, token, expires_at, created_at FROM auth_tokens WHERE token = %s",
                 (token,)
             )
             row = cursor.fetchone()
@@ -394,11 +441,11 @@ class DatabaseManager:
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO refresh_tokens (site_id, user_id, token, family_id, expires_at, created_at, used_at, revoked)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO refresh_tokens (site_id, user_id, site_uuid, user_uuid, token, family_id, expires_at, created_at, used_at, revoked)
+                VALUES (%s, %s, (SELECT uuid FROM sites WHERE id = %s), (SELECT uuid FROM users WHERE id = %s), %s, %s, %s, %s, %s, %s)
                 """,
-                (refresh_token.site_id, refresh_token.user_id, refresh_token.token,
-                 refresh_token.family_id, refresh_token.expires_at, refresh_token.created_at,
+                (refresh_token.site_id, refresh_token.user_id, refresh_token.site_id, refresh_token.user_id,
+                 refresh_token.token, refresh_token.family_id, refresh_token.expires_at, refresh_token.created_at,
                  refresh_token.used_at, refresh_token.revoked)
             )
         return refresh_token
@@ -417,7 +464,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                """SELECT site_id, user_id, token, family_id, expires_at, created_at, used_at, revoked
+                """SELECT site_id, user_id, site_uuid, user_uuid, token, family_id, expires_at, created_at, used_at, revoked
                    FROM refresh_tokens WHERE token = %s""",
                 (token,)
             )
@@ -473,7 +520,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                """SELECT site_id, user_id, token, family_id, expires_at, created_at, used_at, revoked
+                """SELECT site_id, user_id, site_uuid, user_uuid, token, family_id, expires_at, created_at, used_at, revoked
                    FROM refresh_tokens WHERE family_id = %s ORDER BY created_at DESC LIMIT 1""",
                 (family_id,)
             )
@@ -522,10 +569,10 @@ class DatabaseManager:
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO email_verification_tokens (site_id, user_id, token, expires_at, created_at)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO email_verification_tokens (site_id, user_id, site_uuid, user_uuid, token, expires_at, created_at)
+                VALUES (%s, %s, (SELECT uuid FROM sites WHERE id = %s), (SELECT uuid FROM users WHERE id = %s), %s, %s, %s)
                 """,
-                (token.site_id, token.user_id, token.token, token.expires_at, token.created_at)
+                (token.site_id, token.user_id, token.site_id, token.user_id, token.token, token.expires_at, token.created_at)
             )
         return token
 
@@ -543,7 +590,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT site_id, user_id, token, expires_at, created_at FROM email_verification_tokens WHERE token = %s",
+                "SELECT site_id, user_id, site_uuid, user_uuid, token, expires_at, created_at FROM email_verification_tokens WHERE token = %s",
                 (token,)
             )
             row = cursor.fetchone()
@@ -591,10 +638,10 @@ class DatabaseManager:
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO password_reset_tokens (site_id, user_id, token, expires_at, created_at, used)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO password_reset_tokens (site_id, user_id, site_uuid, user_uuid, token, expires_at, created_at, used)
+                VALUES (%s, %s, (SELECT uuid FROM sites WHERE id = %s), (SELECT uuid FROM users WHERE id = %s), %s, %s, %s, %s)
                 """,
-                (token.site_id, token.user_id, token.token, token.expires_at, token.created_at, token.used)
+                (token.site_id, token.user_id, token.site_id, token.user_id, token.token, token.expires_at, token.created_at, token.used)
             )
         return token
 
@@ -612,7 +659,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT site_id, user_id, token, expires_at, created_at, used FROM password_reset_tokens WHERE token = %s",
+                "SELECT site_id, user_id, site_uuid, user_uuid, token, expires_at, created_at, used FROM password_reset_tokens WHERE token = %s",
                 (token,)
             )
             row = cursor.fetchone()
@@ -660,10 +707,10 @@ class DatabaseManager:
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO email_change_requests (site_id, user_id, new_email, token, expires_at, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO email_change_requests (site_id, user_id, site_uuid, user_uuid, new_email, token, expires_at, created_at)
+                VALUES (%s, %s, (SELECT uuid FROM sites WHERE id = %s), (SELECT uuid FROM users WHERE id = %s), %s, %s, %s, %s)
                 """,
-                (request.site_id, request.user_id, request.new_email, request.token, request.expires_at, request.created_at)
+                (request.site_id, request.user_id, request.site_id, request.user_id, request.new_email, request.token, request.expires_at, request.created_at)
             )
         return request
 
@@ -681,7 +728,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT site_id, user_id, new_email, token, expires_at, created_at FROM email_change_requests WHERE token = %s",
+                "SELECT site_id, user_id, site_uuid, user_uuid, new_email, token, expires_at, created_at FROM email_change_requests WHERE token = %s",
                 (token,)
             )
             row = cursor.fetchone()
@@ -726,16 +773,20 @@ class DatabaseManager:
         Returns:
             WebhookEvent: The created event with auto-generated id
         """
+        if event.uuid is None:
+            event.uuid = generate_uuid7()
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO webhook_events (site_id, event_type, payload, response_status, response_body, success, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
+                INSERT INTO webhook_events (uuid, site_id, site_uuid, event_type, payload, response_status, response_body, success, created_at)
+                VALUES (%s, %s, (SELECT uuid FROM sites WHERE id = %s), %s, %s, %s, %s, %s, %s)
+                RETURNING id, site_uuid
                 """,
-                (event.site_id, event.event_type, event.payload, event.response_status, event.response_body, event.success, event.created_at)
+                (event.uuid, event.site_id, event.site_id, event.event_type, event.payload, event.response_status, event.response_body, event.success, event.created_at)
             )
-            event.id = cursor.fetchone()['id']
+            row = cursor.fetchone()
+            event.id = row['id']
+            event.site_uuid = row['site_uuid']
         return event
 
     def list_webhook_events_by_site(self, site_id: int) -> List[WebhookEvent]:
@@ -750,7 +801,7 @@ class DatabaseManager:
         """
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT id, site_id, event_type, payload, response_status, response_body, success, created_at FROM webhook_events WHERE site_id = %s ORDER BY created_at DESC",
+                "SELECT id, uuid, site_id, site_uuid, event_type, payload, response_status, response_body, success, created_at FROM webhook_events WHERE site_id = %s ORDER BY created_at DESC",
                 (site_id,)
             )
             rows = cursor.fetchall()

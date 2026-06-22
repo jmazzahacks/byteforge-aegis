@@ -5,31 +5,32 @@ from flask import Blueprint, jsonify, request
 from database import db_manager
 from schemas.auth_schemas import UserResponseSchema
 from utils.api_key_middleware import require_master_api_key
+from utils.identifiers import resolve_site
 
 list_users_bp = Blueprint('list_users', __name__)
 
 
-@list_users_bp.route('/api/sites/<int:site_id>/users', methods=['GET'])
+@list_users_bp.route('/api/sites/<site_id>/users', methods=['GET'])
 @require_master_api_key
-def list_users_by_site_id(site_id: int):
+def list_users_by_site_id(site_id: str):
     """
-    List all users for a site by site ID.
+    List all users for a site by identifier (integer id or UUID).
 
     Requires master API key (X-API-Key header).
 
     Path parameters:
-        site_id: Site ID
+        site_id: Site identifier (integer id or UUID)
 
     Returns:
         200: List of users
         401: Missing or invalid API key
         404: Site not found
     """
-    site = db_manager.find_site_by_id(site_id)
+    site = resolve_site(site_id)
     if site is None:
         return jsonify({'error': 'Site not found'}), 404
 
-    users = db_manager.list_users_by_site(site_id)
+    users = db_manager.list_users_by_site(site.id)
     schema = UserResponseSchema(many=True)
     return jsonify(schema.dump(users)), 200
 

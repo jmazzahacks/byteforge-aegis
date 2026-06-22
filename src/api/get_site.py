@@ -5,6 +5,7 @@ from flask import Blueprint, jsonify, request
 from database import db_manager
 from schemas.site_schemas import SiteResponseSchema, PublicSiteResponseSchema
 from utils.api_key_middleware import require_master_api_key
+from utils.identifiers import resolve_site
 
 get_site_bp = Blueprint('get_site', __name__)
 
@@ -36,23 +37,23 @@ def get_site_by_domain():
     return jsonify(schema.dump(site)), 200
 
 
-@get_site_bp.route('/api/sites/<int:site_id>', methods=['GET'])
+@get_site_bp.route('/api/sites/<site_id>', methods=['GET'])
 @require_master_api_key
 def get_site_by_id(site_id):
     """
-    Get a site by ID.
+    Get a site by identifier (integer id or UUID).
 
     Requires master API key (X-API-Key header).
 
     Path parameters:
-        site_id: Site ID
+        site_id: Site identifier (integer id or UUID)
 
     Returns:
         200: Site found
         401: Missing or invalid API key
         404: Site not found
     """
-    site = db_manager.find_site_by_id(site_id)
+    site = resolve_site(site_id)
 
     if site is None:
         return jsonify({'error': 'Site not found'}), 404

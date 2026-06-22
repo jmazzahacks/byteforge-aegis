@@ -9,11 +9,12 @@ from services.webhook_service import webhook_service
 from services.tenant_key_service import tenant_key_service
 from utils.validators import validate_request
 from utils.api_key_middleware import require_master_api_key
+from utils.identifiers import resolve_site
 
 update_site_bp = Blueprint('update_site', __name__)
 
 
-@update_site_bp.route('/api/sites/<int:site_id>', methods=['PUT'])
+@update_site_bp.route('/api/sites/<site_id>', methods=['PUT'])
 @require_master_api_key
 @validate_request(UpdateSiteRequestSchema)
 def update_site(validated_data, site_id):
@@ -42,8 +43,8 @@ def update_site(validated_data, site_id):
     if not validated_data:
         return jsonify({'error': 'At least one field must be provided'}), 400
 
-    # Find existing site
-    site = db_manager.find_site_by_id(site_id)
+    # Find existing site (by integer id or UUID)
+    site = resolve_site(site_id)
     if site is None:
         return jsonify({'error': 'Site not found'}), 404
 

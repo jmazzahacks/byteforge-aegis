@@ -3,17 +3,19 @@ Marshmallow schemas for authentication API requests and responses.
 """
 from marshmallow import Schema, fields, validate
 
+from schemas.identifier_fields import SiteIdentifierField
+
 
 class RegisterRequestSchema(Schema):
     """Schema for user registration request (password optional - can set via email verification)"""
-    site_id = fields.Integer(required=True)
+    site_id = SiteIdentifierField(required=True)
     email = fields.Email(required=True)
     password = fields.String(validate=validate.Length(min=8))  # Optional - if not provided, user sets via email
 
 
 class AdminRegisterRequestSchema(Schema):
     """Schema for admin user registration request (no password - user sets via email)"""
-    site_id = fields.Integer(required=True)
+    site_id = SiteIdentifierField(required=True)
     email = fields.Email(required=True)
     role = fields.String(validate=validate.OneOf(['user', 'admin']))
 
@@ -26,21 +28,21 @@ class TenantAdminRegisterSchema(Schema):
 
 class LoginRequestSchema(Schema):
     """Schema for login request"""
-    site_id = fields.Integer(required=True)
+    site_id = SiteIdentifierField(required=True)
     email = fields.Email(required=True)
     password = fields.String(required=True)
 
 
 class VerifyEmailRequestSchema(Schema):
     """Schema for email verification request (with optional password for admin-created users)"""
-    site_id = fields.Integer(required=True)
+    site_id = SiteIdentifierField(required=True)
     token = fields.String(required=True)
     password = fields.String(validate=validate.Length(min=8))  # Optional - required only for users without password
 
 
 class CheckVerificationTokenSchema(Schema):
     """Schema for checking verification token status"""
-    site_id = fields.Integer(required=True)
+    site_id = SiteIdentifierField(required=True)
     token = fields.String(required=True)
 
 
@@ -52,13 +54,13 @@ class ChangePasswordRequestSchema(Schema):
 
 class RequestPasswordResetSchema(Schema):
     """Schema for password reset request"""
-    site_id = fields.Integer(required=True)
+    site_id = SiteIdentifierField(required=True)
     email = fields.Email(required=True)
 
 
 class ResetPasswordRequestSchema(Schema):
     """Schema for password reset with token"""
-    site_id = fields.Integer(required=True)
+    site_id = SiteIdentifierField(required=True)
     token = fields.String(required=True)
     new_password = fields.String(required=True, validate=validate.Length(min=8))
 
@@ -76,7 +78,9 @@ class ConfirmEmailChangeSchema(Schema):
 class UserResponseSchema(Schema):
     """Schema for user response (no sensitive data)"""
     id = fields.Integer()
+    uuid = fields.String()
     site_id = fields.Integer()
+    site_uuid = fields.String()
     email = fields.Email()
     is_verified = fields.Boolean()
     role = fields.Method("get_role")
