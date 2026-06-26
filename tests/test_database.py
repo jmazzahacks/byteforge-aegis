@@ -1,5 +1,10 @@
 import time
-from database import db_manager
+from unittest.mock import MagicMock
+
+import psycopg2
+import pytest
+
+from database import db_manager, DatabaseManager, MAX_HEALTH_RETRIES
 from byteforge_aegis_models import AuthToken, Site, UserRole
 from models.user import User
 
@@ -252,3 +257,99 @@ def test_delete_user_not_found(clean_database):
     """Test deleting a non-existent user returns False."""
     deleted = db_manager.delete_user(99999)
     assert deleted is False
+
+
+# --- Dead-connection recovery (mocked pool, no live Postgres) ---
+
+def _make_db_with_mocked_pool(connections):
+    """Build a DatabaseManager whose pool returns the given pre-built mock conns."""
+    db = DatabaseManager.__new__(DatabaseManager)  # skip __init__'s real pool
+    db.connection_pool = MagicMock()
+    db.connection_pool.getconn.side_effect = list(connections)
+    db._pool_initialized = True
+    return db
+
+
+def _alive_conn():
+    conn = MagicMock()
+    conn.cursor.return_value.fetchone.return_value = (1,)
+    # Explicit closed=0 is REQUIRED — MagicMock would otherwise auto-create
+    # a truthy attribute, making get_connection misclassify every healthy
+    # conn as dead.
+    conn.closed = 0
+    return conn
+
+
+def _dead_conn():
+    conn = MagicMock()
+    conn.cursor.return_value.execute.side_effect = psycopg2.OperationalError("dead")
+    # psycopg2 sets `closed` to non-zero when the socket is actually broken.
+    conn.closed = 2
+    return conn
+
+
+def test_dead_conn_on_first_checkout_retries_and_recovers():
+    dead, alive = _dead_conn(), _alive_conn()
+    db = _make_db_with_mocked_pool([dead, alive])
+
+    with db.get_connection() as conn:
+        assert conn is alive
+
+    # Dead conn was discarded with close=True so the pool refills.
+    db.connection_pool.putconn.assert_any_call(dead, close=True)
+
+
+def test_pool_full_of_corpses_raises_after_max_retries():
+    corpses = [_dead_conn() for _ in range(MAX_HEALTH_RETRIES)]
+    db = _make_db_with_mocked_pool(corpses)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        with db.get_connection():
+            pass
+
+    assert isinstance(excinfo.value.__cause__, psycopg2.OperationalError)
+    assert db.connection_pool.putconn.call_count == MAX_HEALTH_RETRIES
+
+
+def test_mid_flight_death_discards_conn_with_close():
+    """A conn that dies mid-query (rollback then fails, conn.closed flips) is discarded."""
+    alive = _alive_conn()
+    db = _make_db_with_mocked_pool([alive])
+
+    with pytest.raises(psycopg2.OperationalError):
+        with db.get_connection() as conn:
+            # Simulate the conn actually dying mid-query: the subsequent
+            # rollback in the mid-flight handler raises, and conn.closed flips.
+            conn.rollback.side_effect = psycopg2.OperationalError("conn died")
+            conn.closed = 2
+            raise psycopg2.OperationalError("query failed on dead conn")
+
+    # Mid-flight death MUST close the conn, not recycle it.
+    db.connection_pool.putconn.assert_called_once_with(alive, close=True)
+
+
+def test_serialization_failure_on_healthy_conn_recycles():
+    """SerializationFailure inherits from OperationalError but conn is alive — recycle, don't churn."""
+    alive = _alive_conn()
+    db = _make_db_with_mocked_pool([alive])
+
+    with pytest.raises(psycopg2.errors.SerializationFailure):
+        with db.get_connection() as conn:
+            raise psycopg2.errors.SerializationFailure("conflict")
+
+    # Healthy conn — must recycle (close=False), NOT destroy.
+    db.connection_pool.putconn.assert_called_once_with(alive, close=False)
+
+
+def test_value_error_on_silently_dead_conn_discards():
+    """Non-DB exception + silently-dead conn → close=True (don't recycle the corpse)."""
+    alive = _alive_conn()
+    db = _make_db_with_mocked_pool([alive])
+
+    with pytest.raises(ValueError):
+        with db.get_connection() as conn:
+            conn.rollback.side_effect = psycopg2.OperationalError("dead")
+            conn.closed = 2
+            raise ValueError("app error while conn was dying")
+
+    db.connection_pool.putconn.assert_called_once_with(alive, close=True)

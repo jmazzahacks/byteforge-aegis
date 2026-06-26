@@ -1,5 +1,6 @@
 import psycopg2
 from psycopg2 import pool
+from psycopg2.extensions import connection
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
 from typing import Generator, List, Optional
@@ -9,8 +10,23 @@ from config import get_config
 from utils.uuid7 import generate_uuid7
 
 
+# Errors that mean "this socket is unusable — discard, do not recycle."
+_DEAD_CONN_ERRORS = (psycopg2.OperationalError, psycopg2.InterfaceError)
+
+# How many times to retry checkout when pre-ping fails. Enough to drain
+# a pool full of corpses after Postgres restarts; not so high that we
+# spin forever if Postgres is genuinely down.
+MAX_HEALTH_RETRIES = 3
+
+
 class DatabaseManager:
-    """Manages PostgreSQL database connections with connection pooling"""
+    """Manages PostgreSQL database connections with connection pooling.
+
+    Survives upstream Postgres restarts: a naive pool hands out dead
+    sockets after a restart and wedges every worker until redeploy. This
+    pre-pings each checkout, retries past corpses, and discards (rather
+    than recycles) connections whose socket is actually dead.
+    """
 
     def __init__(self, min_conn: int = 1, max_conn: int = 10):
         self.config = get_config()
@@ -28,7 +44,7 @@ class DatabaseManager:
             return True
 
         try:
-            self.connection_pool = psycopg2.pool.SimpleConnectionPool(
+            self.connection_pool = psycopg2.pool.ThreadedConnectionPool(
                 self.min_conn,
                 self.max_conn,
                 host=self.config.DB_HOST,
@@ -37,6 +53,12 @@ class DatabaseManager:
                 user=self.config.DB_USER,
                 password=self.config.DB_PASSWORD,
                 connect_timeout=5,
+                # TCP keepalives — let the OS detect a silently dropped
+                # conn within ~80s instead of "until next reboot."
+                keepalives=1,
+                keepalives_idle=30,
+                keepalives_interval=10,
+                keepalives_count=5,
             )
             self._pool_initialized = True
             print("Database connection pool initialized successfully")
@@ -57,9 +79,61 @@ class DatabaseManager:
         """Cleanup connection pool when instance is destroyed"""
         self.close_pool()
 
+    @staticmethod
+    def _check_alive(conn: connection) -> None:
+        """Cheap `SELECT 1` pre-ping. Raises on dead conn."""
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        finally:
+            cur.close()
+        # Reset transaction state so the caller gets a clean slate.
+        conn.rollback()
+
+    @staticmethod
+    def _is_dead_conn_error(conn: Optional[connection], exc: BaseException) -> bool:
+        """
+        Decide whether `exc` indicates the underlying socket is dead.
+
+        InterfaceError → always dead (operations on a closed conn/cursor).
+        OperationalError → ambiguous: it's the parent class of
+            SerializationFailure, DeadlockDetected, QueryCanceled, and
+            LockNotAvailable, all of which fire on perfectly healthy
+            conns. Use `conn.closed` as the discriminator: psycopg2 sets
+            it to non-zero only when the socket is actually broken.
+        Anything else → not a dead-conn signal.
+        """
+        if isinstance(exc, psycopg2.InterfaceError):
+            return True
+        if isinstance(exc, psycopg2.OperationalError):
+            return conn is None or getattr(conn, "closed", 0) != 0
+        return False
+
+    def _safe_putback(self, conn: Optional[connection], close: bool) -> None:
+        """Best-effort return-to-pool. Falls back to conn.close() on pool error."""
+        if conn is None:
+            return
+        try:
+            self.connection_pool.putconn(conn, close=close)
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
     @contextmanager
     def get_connection(self) -> Generator:
-        """Context manager for getting a database connection from the pool"""
+        """
+        Context manager yielding a healthy pooled connection.
+
+        Pre-pings before yielding. If the pool hands out a dead conn,
+        discards it (so the pool refills with a fresh socket) and retries
+        up to MAX_HEALTH_RETRIES times. Mid-flight, truly-dead sockets
+        (rollback fails or `conn.closed != 0`) are discarded with
+        close=True; app-level errors on healthy conns (e.g.
+        SerializationFailure) recycle into the pool to avoid TCP+auth churn.
+        """
         # Lazy initialization: try to connect if not already connected
         if not self._pool_initialized:
             if not self._try_initialize_pool():
@@ -68,26 +142,76 @@ class DatabaseManager:
         if not self.connection_pool:
             raise Exception("Connection pool not initialized")
 
-        conn = self.connection_pool.getconn()
-        try:
-            yield conn
-        finally:
-            self.connection_pool.putconn(conn)
+        last_err = None
+        for attempt in range(MAX_HEALTH_RETRIES):
+            conn = None
+            try:
+                conn = self.connection_pool.getconn()
+                self._check_alive(conn)
+            except BaseException as e:
+                # Checkout/probe failed. Always discard with close=True —
+                # we don't trust a conn that failed pre-ping. Retry only
+                # if the error means "dead socket"; otherwise propagate.
+                dead = self._is_dead_conn_error(conn, e)
+                self._safe_putback(conn, close=True)
+                if dead:
+                    last_err = e
+                    print(f"DB checkout pre-ping failed (attempt {attempt + 1}/{MAX_HEALTH_RETRIES}): {e}")
+                    continue
+                raise
+
+            # Healthy conn — yield it. Mid-flight handling decides
+            # discard-vs-recycle without trusting the exception class
+            # alone (SerializationFailure / DeadlockDetected all inherit
+            # from OperationalError but the conn is alive).
+            try:
+                yield conn
+            except BaseException:
+                conn_dead = False
+                try:
+                    conn.rollback()
+                except _DEAD_CONN_ERRORS:
+                    conn_dead = True
+                except BaseException:
+                    pass
+                if not conn_dead:
+                    conn_dead = getattr(conn, "closed", 0) != 0
+                self._safe_putback(conn, close=conn_dead)
+                raise
+            else:
+                self._safe_putback(conn, close=False)
+            return
+
+        # Retries exhausted.
+        raise RuntimeError(
+            f"Could not acquire a healthy DB connection after "
+            f"{MAX_HEALTH_RETRIES} attempts"
+        ) from last_err
 
     @contextmanager
     def get_cursor(self, commit: bool = False) -> Generator:
-        """Context manager for getting a cursor with automatic commit/rollback"""
+        """Context manager for getting a cursor with automatic commit/rollback.
+
+        Cleanup (rollback, cursor.close) suppresses dead-conn errors so the
+        caller sees the original exception, not a follow-on.
+        """
         with self.get_connection() as conn:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             try:
                 yield cursor
                 if commit:
                     conn.commit()
-            except Exception as e:
-                conn.rollback()
-                raise e
+            except BaseException:
+                try:
+                    conn.rollback()
+                except _DEAD_CONN_ERRORS:
+                    pass
+                raise
             finally:
-                cursor.close()
+                try:
+                    cursor.close()
+                except _DEAD_CONN_ERRORS:
+                    pass
 
     # Site operations
     def create_site(self, site: 'Site') -> 'Site':
