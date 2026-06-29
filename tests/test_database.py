@@ -259,6 +259,40 @@ def test_delete_user_not_found(clean_database):
     assert deleted is False
 
 
+def test_delete_site(sample_site):
+    """Test deleting a site removes it from the database."""
+    # Verify site exists first
+    found_site = db_manager.find_site_by_id(sample_site.id)
+    assert found_site is not None
+
+    deleted = db_manager.delete_site(sample_site.id)
+    assert deleted is True
+
+    # Verify site is gone
+    found_site = db_manager.find_site_by_id(sample_site.id)
+    assert found_site is None
+
+
+def test_delete_site_cascades_users(sample_site, sample_user):
+    """Test deleting a site cascade-deletes its users."""
+    # sample_user belongs to sample_site
+    found_user = db_manager.find_user_by_id(sample_user.id)
+    assert found_user is not None
+
+    deleted = db_manager.delete_site(sample_site.id)
+    assert deleted is True
+
+    # The site's user is gone via ON DELETE CASCADE
+    found_user = db_manager.find_user_by_id(sample_user.id)
+    assert found_user is None
+
+
+def test_delete_site_not_found(clean_database):
+    """Test deleting a non-existent site returns False."""
+    deleted = db_manager.delete_site(99999)
+    assert deleted is False
+
+
 # --- Dead-connection recovery (mocked pool, no live Postgres) ---
 
 def _make_db_with_mocked_pool(connections):
@@ -351,5 +385,18 @@ def test_value_error_on_silently_dead_conn_discards():
             conn.rollback.side_effect = psycopg2.OperationalError("dead")
             conn.closed = 2
             raise ValueError("app error while conn was dying")
+
+    db.connection_pool.putconn.assert_called_once_with(alive, close=True)
+
+
+def test_unexpected_rollback_failure_discards_conn():
+    """Rollback failure on an open conn means transaction state is unknown."""
+    alive = _alive_conn()
+    db = _make_db_with_mocked_pool([alive])
+
+    with pytest.raises(ValueError):
+        with db.get_connection() as conn:
+            conn.rollback.side_effect = RuntimeError("unexpected rollback failure")
+            raise ValueError("app error mid-transaction")
 
     db.connection_pool.putconn.assert_called_once_with(alive, close=True)

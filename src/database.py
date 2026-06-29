@@ -87,7 +87,10 @@ class DatabaseManager:
             cur.execute("SELECT 1")
             cur.fetchone()
         finally:
-            cur.close()
+            try:
+                cur.close()
+            except Exception:
+                pass
         # Reset transaction state so the caller gets a clean slate.
         conn.rollback()
 
@@ -173,7 +176,9 @@ class DatabaseManager:
                 except _DEAD_CONN_ERRORS:
                     conn_dead = True
                 except BaseException:
-                    pass
+                    # Rollback failed for an unexpected reason. The socket
+                    # may still look open, but transaction state is unknown.
+                    conn_dead = True
                 if not conn_dead:
                     conn_dead = getattr(conn, "closed", 0) != 0
                 self._safe_putback(conn, close=conn_dead)
@@ -192,7 +197,7 @@ class DatabaseManager:
     def get_cursor(self, commit: bool = False) -> Generator:
         """Context manager for getting a cursor with automatic commit/rollback.
 
-        Cleanup (rollback, cursor.close) suppresses dead-conn errors so the
+        Cleanup (rollback, cursor.close) suppresses cleanup errors so the
         caller sees the original exception, not a follow-on.
         """
         with self.get_connection() as conn:
@@ -204,13 +209,13 @@ class DatabaseManager:
             except BaseException:
                 try:
                     conn.rollback()
-                except _DEAD_CONN_ERRORS:
+                except Exception:
                     pass
                 raise
             finally:
                 try:
                     cursor.close()
-                except _DEAD_CONN_ERRORS:
+                except Exception:
                     pass
 
     # Site operations
@@ -318,6 +323,25 @@ class DatabaseManager:
                 (site.name, site.domain, site.frontend_url, site.verification_redirect_url, site.email_from, site.email_from_name, site.updated_at, site.allow_self_registration, site.webhook_url, site.webhook_secret, site.tenant_api_key, site.mailgun_domain, site.mailgun_api_key, site.id)
             )
         return site
+
+    def delete_site(self, site_id: int) -> bool:
+        """
+        Delete a site and ALL of its data from the database.
+
+        Every dependent table (users, auth_tokens, refresh_tokens,
+        email_verification_tokens, password_reset_tokens, email_change_requests,
+        webhook_events) has an ON DELETE CASCADE foreign key to sites, so a
+        single DELETE removes the entire tenant. This is irreversible.
+
+        Args:
+            site_id: The ID of the site to delete
+
+        Returns:
+            bool: True if a site was deleted, False if the site was not found
+        """
+        with self.get_cursor(commit=True) as cursor:
+            cursor.execute("DELETE FROM sites WHERE id = %s", (site_id,))
+            return cursor.rowcount > 0
 
     # User operations
     def create_user(self, user: 'User') -> 'User':
