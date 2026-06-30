@@ -1,3 +1,4 @@
+import logging
 import psycopg2
 from psycopg2 import pool
 from psycopg2.extensions import connection
@@ -8,6 +9,9 @@ from byteforge_aegis_models import WebhookEvent
 from models.user import User
 from config import get_config
 from utils.uuid7 import generate_uuid7
+
+
+logger = logging.getLogger(__name__)
 
 
 # Errors that mean "this socket is unusable — discard, do not recycle."
@@ -90,7 +94,7 @@ class DatabaseManager:
             try:
                 cur.close()
             except Exception:
-                pass
+                logger.exception("Pre-ping cursor close failed; ignoring")
         # Reset transaction state so the caller gets a clean slate.
         conn.rollback()
 
@@ -123,7 +127,7 @@ class DatabaseManager:
             try:
                 conn.close()
             except Exception:
-                pass
+                logger.exception("Pool putback fallback conn.close failed; dropping conn reference")
 
     @contextmanager
     def get_connection(self) -> Generator:
@@ -175,16 +179,29 @@ class DatabaseManager:
                     conn.rollback()
                 except _DEAD_CONN_ERRORS:
                     conn_dead = True
-                except BaseException:
+                except Exception:
                     # Rollback failed for an unexpected reason. The socket
                     # may still look open, but transaction state is unknown.
+                    # Narrowed to Exception (not BaseException) so a signal
+                    # raised mid-rollback (KeyboardInterrupt / SystemExit)
+                    # propagates instead of being silently swallowed by the
+                    # outer bare `raise`, which only re-raises the caller's
+                    # original exception.
+                    logger.exception(
+                        "Unexpected DB rollback failure during mid-flight "
+                        "cleanup; discarding conn"
+                    )
                     conn_dead = True
                 if not conn_dead:
                     conn_dead = getattr(conn, "closed", 0) != 0
                 self._safe_putback(conn, close=conn_dead)
                 raise
             else:
-                self._safe_putback(conn, close=False)
+                # Symmetry with the exception branch: even on a clean exit
+                # the socket may have been closed underneath us, so discard
+                # rather than recycle a dead conn back into the pool.
+                conn_dead = getattr(conn, "closed", 0) != 0
+                self._safe_putback(conn, close=conn_dead)
             return
 
         # Retries exhausted.
@@ -210,13 +227,13 @@ class DatabaseManager:
                 try:
                     conn.rollback()
                 except Exception:
-                    pass
+                    logger.exception("Rollback during get_cursor cleanup failed; ignoring")
                 raise
             finally:
                 try:
                     cursor.close()
                 except Exception:
-                    pass
+                    logger.exception("Cursor close during get_cursor cleanup failed; ignoring")
 
     # Site operations
     def create_site(self, site: 'Site') -> 'Site':

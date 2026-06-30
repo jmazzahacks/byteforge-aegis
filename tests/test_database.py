@@ -400,3 +400,22 @@ def test_unexpected_rollback_failure_discards_conn():
             raise ValueError("app error mid-transaction")
 
     db.connection_pool.putconn.assert_called_once_with(alive, close=True)
+
+
+def test_keyboard_interrupt_during_rollback_propagates():
+    """A signal raised mid-rollback must propagate, not be swallowed.
+
+    The mid-flight cleanup's inner arm is `except Exception:` (not
+    BaseException), so a KeyboardInterrupt raised while rolling back is
+    NOT absorbed: it propagates out instead of letting the outer bare
+    `raise` re-raise the caller's original ValueError. Guards against a
+    future refactor silently re-widening the inner arm and making a
+    user's Ctrl-C vanish.
+    """
+    alive = _alive_conn()
+    db = _make_db_with_mocked_pool([alive])
+
+    with pytest.raises(KeyboardInterrupt):
+        with db.get_connection() as conn:
+            conn.rollback.side_effect = KeyboardInterrupt()
+            raise ValueError("app error mid-transaction")
