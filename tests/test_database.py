@@ -259,6 +259,29 @@ def test_delete_user_not_found(clean_database):
     assert deleted is False
 
 
+def test_count_site_admins(sample_site, admin_user, sample_user):
+    """count_site_admins counts only admin-role users on the site."""
+    # admin_user is an admin; sample_user is a regular user on the same site.
+    assert db_manager.count_site_admins(sample_site.id) == 1
+
+
+def test_count_site_admins_multiple(sample_site, admin_user):
+    """A second admin on the site is counted."""
+    current_time = int(time.time())
+    second_admin = User(
+        id=0,
+        site_id=sample_site.id,
+        email="admin2@example.com",
+        password_hash="$2b$12$hashed_password",
+        is_verified=True,
+        role=UserRole.ADMIN,
+        created_at=current_time,
+        updated_at=current_time
+    )
+    db_manager.create_user(second_admin)
+    assert db_manager.count_site_admins(sample_site.id) == 2
+
+
 def test_delete_site(sample_site):
     """Test deleting a site removes it from the database."""
     # Verify site exists first

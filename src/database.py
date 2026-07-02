@@ -5,7 +5,7 @@ from psycopg2.extensions import connection
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
 from typing import Generator, List, Optional
-from byteforge_aegis_models import WebhookEvent
+from byteforge_aegis_models import WebhookEvent, UserRole
 from models.user import User
 from config import get_config
 from utils.uuid7 import generate_uuid7
@@ -465,6 +465,27 @@ class DatabaseManager:
             )
             rows = cursor.fetchall()
             return [User.from_dict(row) for row in rows]
+
+    def count_site_admins(self, site_id: int) -> int:
+        """
+        Count admin-role users on a site.
+
+        Used to prevent deleting the last admin of a site, which would orphan
+        that site's admin access.
+
+        Args:
+            site_id: The ID of the site
+
+        Returns:
+            Number of users with the admin role on the site
+        """
+        with self.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*) AS count FROM users WHERE site_id = %s AND role = %s",
+                (site_id, UserRole.ADMIN.value)
+            )
+            row = cursor.fetchone()
+            return row['count'] if row else 0
 
     def update_user(self, user: 'User') -> 'User':
         """
