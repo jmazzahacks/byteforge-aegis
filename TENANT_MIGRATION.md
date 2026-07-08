@@ -6,9 +6,13 @@ identifiers and onto UUIDs. Every tenant must complete it before Aegis ships
 phase 2 the API no longer accepts integer `site_id`/`user_id`, and the two Aegis
 installs (`aegis.mazza.vc`, `aegis.reallybadapps.com`) can be merged.
 
-> Validated by the DevNotes pilot (2026-06-25). The notes below incorporate that
-> tenant's feedback — particularly around client versions, the webhook path, and
-> which step actually gates phase 2.
+> Validated by three completed migrations: the DevNotes pilot (2026-06-25), the
+> Eterna/Arcana migration (2026-07-05), and api-gatekeeper (2026-07-08). The notes
+> below incorporate all three tenants' feedback — client versions, the webhook
+> path, and which step actually gates phase 2 (DevNotes); npm lockfile drift,
+> `set -e` build-script hardening, dry-run schema guards, and confirming your real
+> deploy host (Arcana/Eterna); and the fail-closed-guard lockout corner case +
+> UUID case-normalization (api-gatekeeper).
 
 ## Why this is needed
 
@@ -38,6 +42,21 @@ data incrementally and roll back if needed.
   pip's layer cache can silently serve the old version. Rebuild with
   `pip install --no-cache-dir ...` (or bump the pin) and confirm the installed
   version meets the floor above.
+- **JS/TS tenants — regenerate your lockfile *inside* the build image.** npm 10
+  and npm 11 resolve the client dependency to different `package-lock.json`
+  shapes. If your build host runs a different npm major than your Docker image,
+  the lockfile drifts and the build can silently ship a stale client that
+  doesn't meet the floor above. Regenerate the lock (`npm install`) inside the
+  build image, not on the host, so the resolved version is the one that ships.
+  *(Reported by the Arcana/Eterna migration.)*
+- **🛑 STOP — before you rebuild anything, verify your build script has `set -e`.**
+  A `build-publish.sh` (or equivalent) *without* `set -e` keeps running after a
+  failed `docker build` — it pushes a stale `:latest` and bumps your VERSION,
+  shipping the OLD image under a NEW tag, and hands you a baffling rollback. This
+  is the single highest-leverage check in this runbook: two of three tenants so
+  far had a build script missing `set -e`. If this migration rebuilds your tenant
+  image, confirm the script fails fast (`set -e` or explicit exit-code checks)
+  **first**. *(Reported by the Arcana/Eterna and api-gatekeeper migrations.)*
 - **Audit numeric coercion of `AEGIS_SITE_ID`.** Search your tenant code for
   `int(AEGIS_SITE_ID)` or any cast/`parseInt` on the site id and **remove it** —
   the client accepts both forms now, and the cast throws the instant the env var
@@ -116,11 +135,33 @@ from Step 2. Recommended approach:
 4. Drop the old integer column **only after** the order-of-operations footnote
    below is satisfied.
 
+> **Footnote — get the fail-closed guard right, or you'll lock out a real user.**
+> "Fallback fires only when `aegis_uuid IS NULL`" is not the whole rule. The
+> subtle case: an incoming token whose `user.uuid` is **absent** (a pre-shim
+> Aegis response, or a client library that predates the field) hits a row that
+> *has* been backfilled. A naive `row.aegis_uuid != incoming_uuid` then compares
+> `<uuid> != None` → `True` → you refuse a legitimate user. **Correct rule:**
+> refuse *only* when BOTH sides carry a UUID **and** they disagree. If the
+> incoming token has no UUID, accept the INT match unconditionally — you have
+> *less* information, not *conflicting* information. Also **normalize UUID case on
+> both sides** before comparing (`str(uuid.UUID(v))`): Postgres canonicalizes
+> `UUID` columns to lowercase, so an uppercase form from any middleware fails a
+> case-sensitive string compare and rejects a valid match. *(Both reported by the
+> api-gatekeeper migration — their code review caught the lockout before deploy.)*
+
 > **Footnote — when it's safe to drop the integer column.** If you build a
 > UUID-first / INT-fallback path, you must NOT drop the integer column until BOTH
 > (a) no row has `aegis_uuid IS NULL`, AND (b) you have removed the fallback code
 > path. Dropping it early locks out any user the backfill missed. Most tenants
 > should leave the integer column in place until Aegis phase 2 lands server-side.
+
+> **Footnote — if your migration script has a `--dry-run`, guard reads on the
+> new column.** The `aegis_uuid` column does not exist until the `ALTER` runs, so
+> a dry-run that queries it (or `SELECT ... FROM information_schema` /
+> `column_name = 'aegis_uuid'`) before the ALTER will throw or report misleading
+> state on a first pass. Make the dry-run path defensively check the column's
+> existence (or skip the read) so it's safe to run *before* the schema change.
+> *(Reported by the Arcana/Eterna migration.)*
 
 ## Step 3.5 — If you consume Aegis webhooks
 
@@ -174,6 +215,12 @@ accepts it — and investigate.
 ---
 
 ## Operational note — admin-agent escalation
+
+**Confirm your actual deploy host and its escalation path first.** Hosts differ
+per tenant (apollo, brutus, heimdall, zeus, …) — some have a resident admin
+agent, some route deploys straight to a human. Do **not** assume the migration
+ticket named the right host or admin agent; verify where *your* app actually
+deploys before you start, so you know who runs the DB write and the env flip.
 
 If your host is managed by an automation agent (e.g. an apollo/bragi-style
 admin agent), expect the **DB-write and env-edit steps to escalate to a human**
