@@ -45,7 +45,10 @@ def require_tenant_api_key(func):
         if site_identifier is None:
             site_identifier = (request.view_args or {}).get('site_id')
 
-        site = resolve_site(site_identifier)
+        # warn_on_int=False: this resolution happens before the key check, so
+        # unauthenticated traffic must not feed the legacy_int_identifier bake
+        # signal. Gated handlers/schemas re-resolve post-auth and warn there.
+        site = resolve_site(site_identifier, warn_on_int=False)
         if site is None or not site.tenant_api_key:
             return jsonify(_UNIFORM_ERROR[0]), _UNIFORM_ERROR[1]
 

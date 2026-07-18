@@ -5,12 +5,14 @@ Covers: UUIDv7 generation + persistence in the DB layer, lookup by UUID, and
 the API accepting either an integer id or a UUID (and exposing UUIDs in
 responses) while integer addressing keeps working.
 """
+import logging
 import time
 import uuid as uuid_module
 
 from byteforge_aegis_models import Site, UserRole
 from database import db_manager
 from models.user import User
+from utils.identifiers import resolve_site, resolve_user
 
 
 def _is_uuid7(value: str) -> bool:
@@ -114,3 +116,64 @@ class TestGetUserDualAddressing:
         # sample_site's key, but probing other_site's user by UUID.
         resp = self._get(test_client, sample_site.uuid, other_user.uuid, sample_site.tenant_api_key)
         assert resp.status_code == 401
+
+
+class TestLegacyIntWarnInstrumentation:
+    """Phase-3 contract bake: int-identifier hits must emit the legacy_int_identifier WARN."""
+
+    def test_int_site_lookup_warns_with_uuid(self, sample_site, caplog):
+        with caplog.at_level(logging.WARNING, logger='utils.identifiers'):
+            resolve_site(sample_site.id)
+        messages = [record.getMessage() for record in caplog.records]
+        assert any(
+            f'legacy_int_identifier site={sample_site.id}' in m and sample_site.uuid in m
+            for m in messages
+        )
+
+    def test_int_user_lookup_warns_with_site_attribution(self, sample_user, caplog):
+        with caplog.at_level(logging.WARNING, logger='utils.identifiers'):
+            resolve_user(sample_user.id)
+        messages = [record.getMessage() for record in caplog.records]
+        assert any(
+            f'legacy_int_identifier user={sample_user.id}' in m
+            and f'site_uuid={sample_user.site_uuid}' in m
+            for m in messages
+        )
+
+    def test_unknown_int_still_warns(self, clean_database, caplog):
+        with caplog.at_level(logging.WARNING, logger='utils.identifiers'):
+            resolve_site(999999)
+        messages = [record.getMessage() for record in caplog.records]
+        assert any('legacy_int_identifier site=999999' in m for m in messages)
+
+    def test_uuid_lookup_does_not_warn(self, sample_site, sample_user, caplog):
+        with caplog.at_level(logging.WARNING, logger='utils.identifiers'):
+            resolve_site(sample_site.uuid)
+            resolve_user(sample_user.uuid)
+        messages = [record.getMessage() for record in caplog.records]
+        assert not any('legacy_int_identifier' in m for m in messages)
+
+    def test_unauthenticated_int_spray_does_not_warn(self, test_client, sample_site, caplog):
+        """Pre-auth middleware resolution must not feed the bake signal (any
+        unauthenticated caller could otherwise pollute it with fake int hits)."""
+        with caplog.at_level(logging.WARNING, logger='utils.identifiers'):
+            resp = test_client.post(
+                '/api/auth/login',
+                json={'site_id': sample_site.id, 'email': 'x@example.com', 'password': 'y'},
+                headers={'X-Tenant-Api-Key': 'wrong-key'},
+            )
+        assert resp.status_code == 401
+        messages = [record.getMessage() for record in caplog.records]
+        assert not any('legacy_int_identifier' in m for m in messages)
+
+    def test_api_int_hit_includes_route_attribution(self, test_client, sample_site, sample_user, caplog):
+        with caplog.at_level(logging.WARNING, logger='utils.identifiers'):
+            test_client.get(
+                f'/api/sites/{sample_site.id}/users/{sample_user.id}',
+                headers={'X-Tenant-Api-Key': sample_site.tenant_api_key},
+            )
+        messages = [record.getMessage() for record in caplog.records]
+        assert any(
+            'legacy_int_identifier' in m and f'route=GET /api/sites/{sample_site.id}/users/' in m
+            for m in messages
+        )
