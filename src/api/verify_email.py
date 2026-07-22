@@ -3,7 +3,7 @@ Email verification endpoint.
 """
 from flask import Blueprint, jsonify
 from services.auth_service import auth_service
-from schemas.auth_schemas import VerifyEmailRequestSchema
+from schemas.auth_schemas import UserResponseSchema, VerifyEmailRequestSchema
 from utils.validators import validate_request
 from utils.tenant_api_key_middleware import require_tenant_api_key
 
@@ -34,6 +34,11 @@ def verify_email(validated_data: dict):
             site_uuid=validated_data['site_id'],
             password=validated_data.get('password')
         )
-        return jsonify(result.to_dict()), 200
+        # Dump the user through the response schema — result.to_dict() would
+        # serialize the backend User model, which carries password_hash.
+        return jsonify({
+            'user': UserResponseSchema().dump(result.user),
+            'redirect_url': result.redirect_url,
+        }), 200
     except ValueError as e:
         return jsonify({'error': str(e)}), 400

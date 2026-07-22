@@ -131,6 +131,33 @@ class TestGetUserUuidOnly:
         assert resp.status_code == 401
 
 
+class TestVerifyEmailResponse:
+    def test_no_password_hash_in_response(self, test_client, sample_site):
+        """verify-email must dump through the response schema — serializing
+        the backend User model directly would leak password_hash."""
+        from services.auth_service import auth_service
+        user = auth_service.register_user(
+            site_uuid=sample_site.uuid, email="verify-leak@example.com", password="password123",
+        )
+        with db_manager.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT token FROM email_verification_tokens WHERE user_uuid = %s",
+                (user.uuid,)
+            )
+            token = cursor.fetchone()['token']
+
+        resp = test_client.post(
+            '/api/auth/verify-email',
+            json={'site_id': sample_site.uuid, 'token': token},
+            headers={'X-Tenant-Api-Key': sample_site.tenant_api_key},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert 'password_hash' not in data['user']
+        assert data['user']['uuid'] == user.uuid
+        assert data['redirect_url']
+
+
 class TestAdminRoutesUuidOnly:
     """Master-key routes reject integer addressing with 404."""
 
