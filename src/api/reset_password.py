@@ -28,7 +28,7 @@ def reset_password(validated_data):
     try:
         user = auth_service.reset_password(
             token=validated_data['token'],
-            site_id=validated_data['site_id'],
+            site_uuid=validated_data['site_id'],
             new_password=validated_data['new_password']
         )
         schema = UserResponseSchema()

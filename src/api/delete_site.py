@@ -19,7 +19,7 @@ def delete_site(site_id: str):
     dependent record for the tenant is removed via ON DELETE CASCADE.
 
     Path parameters:
-        site_id: Site identifier to delete (integer id or UUID)
+        site_id: Site UUID to delete
 
     Returns:
         200: Site deleted successfully
@@ -27,13 +27,13 @@ def delete_site(site_id: str):
         404: Site not found
         500: Deletion failed
     """
-    # Check if site exists first (by integer id or UUID)
+    # Check if site exists first
     site = resolve_site(site_id)
     if not site:
         return jsonify({'error': 'Site not found'}), 404
 
-    deleted = db_manager.delete_site(site.id)
+    deleted = db_manager.delete_site(site.uuid)
     if deleted:
-        return jsonify({'message': f'Site {site.id} deleted successfully'}), 200
+        return jsonify({'message': f'Site {site.uuid} deleted successfully'}), 200
     else:
         return jsonify({'error': 'Failed to delete site'}), 500

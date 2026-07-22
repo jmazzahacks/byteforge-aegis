@@ -19,7 +19,7 @@ def test_missing_header_returns_401(test_client, sample_site):
     response = _post(
         test_client,
         '/api/auth/register',
-        {'site_id': sample_site.id, 'email': 'a@example.com'},
+        {'site_id': sample_site.uuid, 'email': 'a@example.com'},
     )
     assert response.status_code == 401
     assert UNIFORM_ERROR_FRAGMENT in response.get_json()['error'].lower()
@@ -30,7 +30,7 @@ def test_wrong_key_returns_401(test_client, sample_site):
     response = _post(
         test_client,
         '/api/auth/register',
-        {'site_id': sample_site.id, 'email': 'a@example.com'},
+        {'site_id': sample_site.uuid, 'email': 'a@example.com'},
         headers={'X-Tenant-Api-Key': 'completely_wrong_key'},
     )
     assert response.status_code == 401
@@ -49,12 +49,12 @@ def test_missing_site_id_returns_401(test_client, sample_site):
     assert UNIFORM_ERROR_FRAGMENT in response.get_json()['error'].lower()
 
 
-def test_non_int_site_id_returns_401(test_client, sample_site):
-    """site_id of wrong type returns uniform 401."""
+def test_non_uuid_site_id_returns_401(test_client, sample_site):
+    """site_id that is not a UUID returns uniform 401."""
     response = _post(
         test_client,
         '/api/auth/register',
-        {'site_id': 'not-an-int', 'email': 'a@example.com'},
+        {'site_id': 'not-a-uuid', 'email': 'a@example.com'},
         headers={'X-Tenant-Api-Key': sample_site.tenant_api_key},
     )
     assert response.status_code == 401
@@ -66,7 +66,7 @@ def test_unknown_site_id_returns_401(test_client, sample_site):
     response = _post(
         test_client,
         '/api/auth/register',
-        {'site_id': 999999, 'email': 'a@example.com'},
+        {'site_id': '01980000-0000-7000-8000-00000000dead', 'email': 'a@example.com'},
         headers={'X-Tenant-Api-Key': sample_site.tenant_api_key},
     )
     assert response.status_code == 401
@@ -76,10 +76,10 @@ def test_unknown_site_id_returns_401(test_client, sample_site):
 def test_uniform_error_response_across_failure_modes(test_client, sample_site):
     """Every failure mode returns identical response bytes (anti-enumeration)."""
     cases = [
-        ({'site_id': sample_site.id, 'email': 'a@example.com'}, {}),
-        ({'site_id': sample_site.id, 'email': 'a@example.com'}, {'X-Tenant-Api-Key': 'wrong'}),
+        ({'site_id': sample_site.uuid, 'email': 'a@example.com'}, {}),
+        ({'site_id': sample_site.uuid, 'email': 'a@example.com'}, {'X-Tenant-Api-Key': 'wrong'}),
         ({'email': 'a@example.com'}, {'X-Tenant-Api-Key': sample_site.tenant_api_key}),
-        ({'site_id': 999999, 'email': 'a@example.com'}, {'X-Tenant-Api-Key': sample_site.tenant_api_key}),
+        ({'site_id': '01980000-0000-7000-8000-00000000dead', 'email': 'a@example.com'}, {'X-Tenant-Api-Key': sample_site.tenant_api_key}),
     ]
     response_bodies = set()
     for body, headers in cases:
@@ -99,7 +99,7 @@ def test_valid_key_passes_through_to_handler(test_client, sample_site):
         test_client,
         '/api/auth/register',
         {
-            'site_id': sample_site.id,
+            'site_id': sample_site.uuid,
             'email': 'newuser@example.com',
             'password': 'gate_test_pw_99',
         },
@@ -112,7 +112,7 @@ def test_valid_key_passes_through_to_handler(test_client, sample_site):
 def test_path_site_id_fallback_for_get(test_client, sample_site, sample_user):
     """For GET routes (no JSON body), middleware reads site_id from view_args."""
     response = test_client.get(
-        f'/api/sites/{sample_site.id}/users/{sample_user.id}',
+        f'/api/sites/{sample_site.uuid}/users/{sample_user.uuid}',
         headers={'X-Tenant-Api-Key': sample_site.tenant_api_key},
     )
     # Passing the gate means we reach the handler; sample_user belongs to
@@ -123,7 +123,7 @@ def test_path_site_id_fallback_for_get(test_client, sample_site, sample_user):
 def test_path_site_id_fallback_missing_returns_401(test_client, sample_site):
     """GET against a path-based route with no matching site → uniform 401."""
     response = test_client.get(
-        f'/api/sites/999999/users/1',
+        f'/api/sites/01980000-0000-7000-8000-00000000dead/users/{sample_site.uuid}',
         headers={'X-Tenant-Api-Key': sample_site.tenant_api_key},
     )
     assert response.status_code == 401

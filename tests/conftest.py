@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 from database import db_manager
 from byteforge_aegis_models import AuthToken, Site, UserRole
 from models.user import User
+from utils.uuid7 import generate_uuid7
 from app import create_app
 
 
@@ -30,7 +31,7 @@ def sample_site(clean_database):
     """Create a sample site for testing"""
     current_time = int(time.time())
     site = Site(
-        id=0,
+        uuid=generate_uuid7(),
         name="Test Site",
         domain="test.example.com",
         frontend_url="http://test.example.com",
@@ -48,8 +49,8 @@ def sample_user(sample_site):
     """Create a sample user for testing"""
     current_time = int(time.time())
     user = User(
-        id=0,
-        site_id=sample_site.id,
+        uuid=generate_uuid7(),
+        site_uuid=sample_site.uuid,
         email="test@example.com",
         password_hash="$2b$12$hashed_password",
         is_verified=False,
@@ -65,8 +66,8 @@ def admin_user(sample_site):
     """Create an admin user for testing"""
     current_time = int(time.time())
     user = User(
-        id=0,
-        site_id=sample_site.id,
+        uuid=generate_uuid7(),
+        site_uuid=sample_site.uuid,
         email="admin@example.com",
         password_hash="$2b$12$hashed_password",
         is_verified=True,
@@ -83,9 +84,9 @@ def admin_auth_token(sample_site, admin_user):
     current_time = int(time.time())
     token = AuthToken(
         token="admin_test_token_123",
-        site_id=sample_site.id,
-        user_id=admin_user.id,
+        user_uuid=admin_user.uuid,
         expires_at=current_time + 3600,
+        site_uuid=sample_site.uuid,
         created_at=current_time
     )
     return db_manager.create_auth_token(token)
@@ -97,9 +98,9 @@ def user_auth_token(sample_site, sample_user):
     current_time = int(time.time())
     token = AuthToken(
         token="user_test_token_456",
-        site_id=sample_site.id,
-        user_id=sample_user.id,
+        user_uuid=sample_user.uuid,
         expires_at=current_time + 3600,
+        site_uuid=sample_site.uuid,
         created_at=current_time
     )
     return db_manager.create_auth_token(token)

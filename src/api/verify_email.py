@@ -31,7 +31,7 @@ def verify_email(validated_data: dict):
     try:
         result = auth_service.verify_email(
             token=validated_data['token'],
-            site_id=validated_data['site_id'],
+            site_uuid=validated_data['site_id'],
             password=validated_data.get('password')
         )
         return jsonify(result.to_dict()), 200

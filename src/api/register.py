@@ -18,7 +18,7 @@ def register(validated_data: dict):
     Register a new user.
 
     Request body:
-        site_id: ID of the site
+        site_id: UUID of the site
         email: User email
         password: Optional user password (min 8 characters)
                   If not provided, user will set password via email verification
@@ -32,7 +32,7 @@ def register(validated_data: dict):
     """
     try:
         auth_service.register_user(
-            site_id=validated_data['site_id'],
+            site_uuid=validated_data['site_id'],
             email=validated_data['email'],
             password=validated_data.get('password')  # Optional - can be None
         )

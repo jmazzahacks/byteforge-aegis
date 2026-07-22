@@ -1,11 +1,10 @@
 """
-Tests for the int -> UUID identifier migration (dual-support phase).
+Tests for UUID-only identifier handling (post-contract).
 
 Covers: UUIDv7 generation + persistence in the DB layer, lookup by UUID, and
-the API accepting either an integer id or a UUID (and exposing UUIDs in
-responses) while integer addressing keeps working.
+the API accepting ONLY UUIDs — integer addressing must be rejected with the
+same status as any unknown identifier (no special-casing, no 500s).
 """
-import logging
 import time
 import uuid as uuid_module
 
@@ -13,6 +12,7 @@ from byteforge_aegis_models import Site, UserRole
 from database import db_manager
 from models.user import User
 from utils.identifiers import resolve_site, resolve_user
+from utils.uuid7 import generate_uuid7
 
 
 def _is_uuid7(value: str) -> bool:
@@ -25,30 +25,63 @@ class TestDbLayerUuids:
         assert sample_site.uuid is not None
         assert _is_uuid7(sample_site.uuid)
 
-    def test_create_user_generates_uuid_and_site_uuid(self, sample_site, sample_user):
+    def test_create_user_carries_site_uuid(self, sample_site, sample_user):
         assert sample_user.uuid is not None
         assert _is_uuid7(sample_user.uuid)
-        # The user's site_uuid FK is derived from the owning site.
         assert sample_user.site_uuid == sample_site.uuid
 
     def test_find_site_by_uuid(self, sample_site):
         found = db_manager.find_site_by_uuid(sample_site.uuid)
         assert found is not None
-        assert found.id == sample_site.id
         assert found.uuid == sample_site.uuid
 
     def test_find_user_by_uuid(self, sample_user):
         found = db_manager.find_user_by_uuid(sample_user.uuid)
         assert found is not None
-        assert found.id == sample_user.id
+        assert found.uuid == sample_user.uuid
         assert found.site_uuid == sample_user.site_uuid
 
     def test_find_site_by_uuid_unknown_returns_none(self, clean_database):
         assert db_manager.find_site_by_uuid(str(uuid_module.uuid4())) is None
 
+    def test_create_site_mints_uuid_when_missing(self, clean_database):
+        current_time = int(time.time())
+        site = db_manager.create_site(Site(
+            uuid='', name="Minted", domain="minted.example.com",
+            frontend_url="http://minted.example.com",
+            email_from="noreply@minted.example.com", email_from_name="Minted",
+            created_at=current_time, updated_at=current_time,
+            tenant_api_key="minted_tenant_key_64chars_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ))
+        assert site.uuid and _is_uuid7(site.uuid)
 
-class TestGetUserDualAddressing:
-    """GET /api/sites/<site>/users/<user> must accept int or UUID for both."""
+
+class TestResolvers:
+    def test_resolve_site_by_uuid(self, sample_site):
+        site = resolve_site(sample_site.uuid)
+        assert site is not None
+        assert site.uuid == sample_site.uuid
+
+    def test_resolve_user_by_uuid(self, sample_user):
+        user = resolve_user(sample_user.uuid)
+        assert user is not None
+        assert user.uuid == sample_user.uuid
+
+    def test_resolve_rejects_integers(self, sample_site, sample_user):
+        """Integer ids are no longer identifiers — not even as strings."""
+        assert resolve_site(1) is None
+        assert resolve_site('1') is None
+        assert resolve_user(1) is None
+        assert resolve_user('1') is None
+
+    def test_resolve_rejects_garbage(self, clean_database):
+        assert resolve_site('not-a-uuid') is None
+        assert resolve_site(None) is None
+        assert resolve_user('999999999999999999999') is None
+
+
+class TestGetUserUuidOnly:
+    """GET /api/sites/<site>/users/<user> accepts UUIDs only."""
 
     def _get(self, client, site_id, user_id, key):
         return client.get(
@@ -60,41 +93,21 @@ class TestGetUserDualAddressing:
         resp = self._get(test_client, sample_site.uuid, sample_user.uuid, sample_site.tenant_api_key)
         assert resp.status_code == 200
         data = resp.get_json()
-        assert data['id'] == sample_user.id
         assert data['uuid'] == sample_user.uuid
         assert data['site_uuid'] == sample_site.uuid
+        assert 'id' not in data
+        assert 'site_id' not in data
 
-    def test_by_int_site_uuid_user(self, test_client, sample_site, sample_user):
-        resp = self._get(test_client, sample_site.id, sample_user.uuid, sample_site.tenant_api_key)
-        assert resp.status_code == 200
-        assert resp.get_json()['uuid'] == sample_user.uuid
-
-    def test_by_uuid_site_int_user(self, test_client, sample_site, sample_user):
-        resp = self._get(test_client, sample_site.uuid, sample_user.id, sample_site.tenant_api_key)
-        assert resp.status_code == 200
-        assert resp.get_json()['id'] == sample_user.id
-
-    def test_int_addressing_still_works(self, test_client, sample_site, sample_user):
-        resp = self._get(test_client, sample_site.id, sample_user.id, sample_site.tenant_api_key)
-        assert resp.status_code == 200
-
-    def test_response_includes_uuid_fields(self, test_client, sample_site, sample_user):
-        resp = self._get(test_client, sample_site.id, sample_user.id, sample_site.tenant_api_key)
-        data = resp.get_json()
-        assert data['uuid'] == sample_user.uuid
-        assert data['site_uuid'] == sample_site.uuid
-
-    def test_uuid_site_wrong_key_returns_401(self, test_client, sample_site, sample_user):
-        resp = self._get(test_client, sample_site.uuid, sample_user.uuid, 'wrong_key')
+    def test_int_addressing_rejected(self, test_client, sample_site, sample_user):
+        """Legacy integer addressing returns the uniform 401, not a match."""
+        resp = self._get(test_client, '1', '1', sample_site.tenant_api_key)
         assert resp.status_code == 401
 
     def test_malformed_uuid_returns_401_not_500(self, test_client, sample_site):
-        """A non-int, non-UUID path segment must not reach a uuid column query."""
         resp = self._get(test_client, sample_site.uuid, 'not-a-real-id', sample_site.tenant_api_key)
         assert resp.status_code == 401
 
     def test_oversized_integer_identifier_returns_401_not_500(self, test_client, sample_site):
-        """An all-digit value beyond INTEGER range must not overflow into a 500."""
         resp = self._get(test_client, sample_site.uuid, '999999999999999999999', sample_site.tenant_api_key)
         assert resp.status_code == 401
 
@@ -102,14 +115,14 @@ class TestGetUserDualAddressing:
         """A user from another site, addressed by UUID, is still rejected."""
         current_time = int(time.time())
         other_site = db_manager.create_site(Site(
-            id=0, name="Other", domain="other-uuid.example.com",
+            uuid=generate_uuid7(), name="Other", domain="other-uuid.example.com",
             frontend_url="http://other-uuid.example.com",
             email_from="noreply@other-uuid.example.com", email_from_name="Other",
             created_at=current_time, updated_at=current_time,
             tenant_api_key="uuidprobe_tenant_key_64chars_aaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         ))
         other_user = db_manager.create_user(User(
-            id=0, site_id=other_site.id, email="o@example.com",
+            uuid=generate_uuid7(), site_uuid=other_site.uuid, email="o@example.com",
             password_hash="$2b$12$x", is_verified=True, role=UserRole.USER,
             created_at=current_time, updated_at=current_time,
         ))
@@ -118,62 +131,24 @@ class TestGetUserDualAddressing:
         assert resp.status_code == 401
 
 
-class TestLegacyIntWarnInstrumentation:
-    """Phase-3 contract bake: int-identifier hits must emit the legacy_int_identifier WARN."""
+class TestAdminRoutesUuidOnly:
+    """Master-key routes reject integer addressing with 404."""
 
-    def test_int_site_lookup_warns_with_uuid(self, sample_site, caplog):
-        with caplog.at_level(logging.WARNING, logger='utils.identifiers'):
-            resolve_site(sample_site.id)
-        messages = [record.getMessage() for record in caplog.records]
-        assert any(
-            f'legacy_int_identifier site={sample_site.id}' in m and sample_site.uuid in m
-            for m in messages
+    def test_get_site_by_int_returns_404(self, test_client, sample_site):
+        from config import get_config
+        resp = test_client.get(
+            '/api/sites/1',
+            headers={'X-API-Key': get_config().MASTER_API_KEY},
         )
+        assert resp.status_code == 404
 
-    def test_int_user_lookup_warns_with_site_attribution(self, sample_user, caplog):
-        with caplog.at_level(logging.WARNING, logger='utils.identifiers'):
-            resolve_user(sample_user.id)
-        messages = [record.getMessage() for record in caplog.records]
-        assert any(
-            f'legacy_int_identifier user={sample_user.id}' in m
-            and f'site_uuid={sample_user.site_uuid}' in m
-            for m in messages
+    def test_get_site_by_uuid_works(self, test_client, sample_site):
+        from config import get_config
+        resp = test_client.get(
+            f'/api/sites/{sample_site.uuid}',
+            headers={'X-API-Key': get_config().MASTER_API_KEY},
         )
-
-    def test_unknown_int_still_warns(self, clean_database, caplog):
-        with caplog.at_level(logging.WARNING, logger='utils.identifiers'):
-            resolve_site(999999)
-        messages = [record.getMessage() for record in caplog.records]
-        assert any('legacy_int_identifier site=999999' in m for m in messages)
-
-    def test_uuid_lookup_does_not_warn(self, sample_site, sample_user, caplog):
-        with caplog.at_level(logging.WARNING, logger='utils.identifiers'):
-            resolve_site(sample_site.uuid)
-            resolve_user(sample_user.uuid)
-        messages = [record.getMessage() for record in caplog.records]
-        assert not any('legacy_int_identifier' in m for m in messages)
-
-    def test_unauthenticated_int_spray_does_not_warn(self, test_client, sample_site, caplog):
-        """Pre-auth middleware resolution must not feed the bake signal (any
-        unauthenticated caller could otherwise pollute it with fake int hits)."""
-        with caplog.at_level(logging.WARNING, logger='utils.identifiers'):
-            resp = test_client.post(
-                '/api/auth/login',
-                json={'site_id': sample_site.id, 'email': 'x@example.com', 'password': 'y'},
-                headers={'X-Tenant-Api-Key': 'wrong-key'},
-            )
-        assert resp.status_code == 401
-        messages = [record.getMessage() for record in caplog.records]
-        assert not any('legacy_int_identifier' in m for m in messages)
-
-    def test_api_int_hit_includes_route_attribution(self, test_client, sample_site, sample_user, caplog):
-        with caplog.at_level(logging.WARNING, logger='utils.identifiers'):
-            test_client.get(
-                f'/api/sites/{sample_site.id}/users/{sample_user.id}',
-                headers={'X-Tenant-Api-Key': sample_site.tenant_api_key},
-            )
-        messages = [record.getMessage() for record in caplog.records]
-        assert any(
-            'legacy_int_identifier' in m and f'route=GET /api/sites/{sample_site.id}/users/' in m
-            for m in messages
-        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['uuid'] == sample_site.uuid
+        assert 'id' not in data

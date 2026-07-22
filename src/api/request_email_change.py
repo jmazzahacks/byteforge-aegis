@@ -30,7 +30,7 @@ def request_email_change(validated_data):
     """
     try:
         auth_service.request_email_change(
-            user_id=request.user_id,
+            user_uuid=request.user_uuid,
             new_email=validated_data['new_email']
         )
         return jsonify({'message': 'Email change confirmation sent'}), 200

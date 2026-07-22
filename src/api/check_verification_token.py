@@ -29,7 +29,7 @@ def check_verification_token(validated_data: dict):
     try:
         result = auth_service.check_verification_token(
             token=validated_data['token'],
-            site_id=validated_data['site_id'],
+            site_uuid=validated_data['site_id'],
         )
         return jsonify(result.to_dict()), 200
     except ValueError as e:

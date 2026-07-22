@@ -22,7 +22,7 @@ GATED_REQUESTS = [
 
 
 def _with_site_id(body, sample_site):
-    return {**body, 'site_id': sample_site.id}
+    return {**body, 'site_id': sample_site.uuid}
 
 
 def test_all_gated_endpoints_reject_missing_header(test_client, sample_site):

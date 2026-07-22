@@ -24,7 +24,7 @@ def me():
         200: User record for the authenticated user
         401: Missing, malformed, unknown, or expired token
     """
-    user = db_manager.find_user_by_id(request.user_id)
+    user = db_manager.find_user_by_uuid(request.user_uuid)
     if user is None:
         return jsonify({'error': 'Invalid or expired token'}), 401
 

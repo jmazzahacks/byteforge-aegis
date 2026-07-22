@@ -24,7 +24,7 @@ def admin_register(validated_data: dict):
     when clicking the verification link. Admins cannot set passwords for users.
 
     Request body:
-        site_id: ID of the site
+        site_id: UUID of the site
         email: User email
         role: Optional role ('user' or 'admin', defaults to 'user')
 
@@ -39,7 +39,7 @@ def admin_register(validated_data: dict):
         role = UserRole.ADMIN if role_str == 'admin' else UserRole.USER
 
         user = auth_service.register_user(
-            site_id=validated_data['site_id'],
+            site_uuid=validated_data['site_id'],
             email=validated_data['email'],
             password=None,  # User will set password via email verification
             role=role,

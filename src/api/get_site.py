@@ -41,12 +41,12 @@ def get_site_by_domain():
 @require_master_api_key
 def get_site_by_id(site_id):
     """
-    Get a site by identifier (integer id or UUID).
+    Get a site by UUID.
 
     Requires master API key (X-API-Key header).
 
     Path parameters:
-        site_id: Site identifier (integer id or UUID)
+        site_id: Site UUID
 
     Returns:
         200: Site found

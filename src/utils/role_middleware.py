@@ -34,12 +34,12 @@ def require_role(required_role: UserRole):
 
             token = auth_header[7:]  # Remove 'Bearer ' prefix
 
-            user_id = token_service.validate_auth_token(token)
+            user_uuid = token_service.validate_auth_token(token)
 
-            if user_id is None:
+            if user_uuid is None:
                 return jsonify({'error': 'Invalid or expired token'}), 401
 
-            user = db_manager.find_user_by_id(user_id)
+            user = db_manager.find_user_by_uuid(user_uuid)
 
             if not user:
                 return jsonify({'error': 'User not found'}), 401
@@ -47,7 +47,7 @@ def require_role(required_role: UserRole):
             if user.role != required_role:
                 return jsonify({'error': 'Insufficient permissions'}), 403
 
-            request.user_id = user_id
+            request.user_uuid = user_uuid
             request.user = user
 
             return func(*args, **kwargs)

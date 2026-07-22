@@ -38,7 +38,6 @@ def create_site(validated_data):
     webhook_secret = webhook_service.generate_webhook_secret() if webhook_url else None
 
     site = Site(
-        id=0,
         name=validated_data['name'],
         domain=validated_data['domain'],
         frontend_url=validated_data['frontend_url'],

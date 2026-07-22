@@ -241,44 +241,22 @@ class DatabaseManager:
         Create a new site in the database.
 
         Args:
-            site: Site model with name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration
+            site: Site model; a missing/empty uuid is minted here (UUIDv7)
 
         Returns:
-            Site: The created site with auto-generated id
+            Site: The created site
         """
-        if site.uuid is None:
+        if not site.uuid:
             site.uuid = generate_uuid7()
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
                 INSERT INTO sites (uuid, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
                 """,
                 (site.uuid, site.name, site.domain, site.frontend_url, site.verification_redirect_url, site.email_from, site.email_from_name, site.created_at, site.updated_at, site.allow_self_registration, site.webhook_url, site.webhook_secret, site.tenant_api_key, site.mailgun_domain, site.mailgun_api_key)
             )
-            site.id = cursor.fetchone()['id']
         return site
-
-    def find_site_by_id(self, site_id: int) -> Optional['Site']:
-        """
-        Find a site by its ID.
-
-        Args:
-            site_id: The site's ID
-
-        Returns:
-            Optional[Site]: The site if found, None otherwise
-        """
-        from byteforge_aegis_models import Site
-
-        with self.get_cursor() as cursor:
-            cursor.execute(
-                "SELECT id, uuid, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key FROM sites WHERE id = %s",
-                (site_id,)
-            )
-            row = cursor.fetchone()
-            return Site.from_dict(row) if row else None
 
     def find_site_by_uuid(self, site_uuid: str) -> Optional['Site']:
         """
@@ -294,7 +272,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT id, uuid, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key FROM sites WHERE uuid = %s",
+                "SELECT uuid, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key FROM sites WHERE uuid = %s",
                 (site_uuid,)
             )
             row = cursor.fetchone()
@@ -314,7 +292,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT id, uuid, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key FROM sites WHERE domain = %s",
+                "SELECT uuid, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key FROM sites WHERE domain = %s",
                 (domain,)
             )
             row = cursor.fetchone()
@@ -325,7 +303,7 @@ class DatabaseManager:
         Update an existing site in the database.
 
         Args:
-            site: Site model with all fields including id
+            site: Site model with all fields including uuid
 
         Returns:
             Site: The updated site model
@@ -335,13 +313,13 @@ class DatabaseManager:
                 """
                 UPDATE sites
                 SET name = %s, domain = %s, frontend_url = %s, verification_redirect_url = %s, email_from = %s, email_from_name = %s, updated_at = %s, allow_self_registration = %s, webhook_url = %s, webhook_secret = %s, tenant_api_key = %s, mailgun_domain = %s, mailgun_api_key = %s
-                WHERE id = %s
+                WHERE uuid = %s
                 """,
-                (site.name, site.domain, site.frontend_url, site.verification_redirect_url, site.email_from, site.email_from_name, site.updated_at, site.allow_self_registration, site.webhook_url, site.webhook_secret, site.tenant_api_key, site.mailgun_domain, site.mailgun_api_key, site.id)
+                (site.name, site.domain, site.frontend_url, site.verification_redirect_url, site.email_from, site.email_from_name, site.updated_at, site.allow_self_registration, site.webhook_url, site.webhook_secret, site.tenant_api_key, site.mailgun_domain, site.mailgun_api_key, site.uuid)
             )
         return site
 
-    def delete_site(self, site_id: int) -> bool:
+    def delete_site(self, site_uuid: str) -> bool:
         """
         Delete a site and ALL of its data from the database.
 
@@ -351,13 +329,13 @@ class DatabaseManager:
         single DELETE removes the entire tenant. This is irreversible.
 
         Args:
-            site_id: The ID of the site to delete
+            site_uuid: The UUID of the site to delete
 
         Returns:
             bool: True if a site was deleted, False if the site was not found
         """
         with self.get_cursor(commit=True) as cursor:
-            cursor.execute("DELETE FROM sites WHERE id = %s", (site_id,))
+            cursor.execute("DELETE FROM sites WHERE uuid = %s", (site_uuid,))
             return cursor.rowcount > 0
 
     # User operations
@@ -366,46 +344,24 @@ class DatabaseManager:
         Create a new user in the database.
 
         Args:
-            user: User model with site_id, email, password_hash, is_verified, role, created_at, updated_at
+            user: User model with site_uuid, email, password_hash, is_verified,
+                role, created_at, updated_at; a missing/empty uuid is minted
+                here (UUIDv7)
 
         Returns:
-            User: The created user with auto-generated id
+            User: The created user
         """
-        if user.uuid is None:
+        if not user.uuid:
             user.uuid = generate_uuid7()
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO users (uuid, site_id, site_uuid, email, password_hash, is_verified, role, created_at, updated_at)
-                VALUES (%s, %s, (SELECT uuid FROM sites WHERE id = %s), %s, %s, %s, %s, %s, %s)
-                RETURNING id, site_uuid
+                INSERT INTO users (uuid, site_uuid, email, password_hash, is_verified, role, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (user.uuid, user.site_id, user.site_id, user.email, user.password_hash, user.is_verified, user.role.value, user.created_at, user.updated_at)
+                (user.uuid, user.site_uuid, user.email, user.password_hash, user.is_verified, user.role.value, user.created_at, user.updated_at)
             )
-            row = cursor.fetchone()
-            user.id = row['id']
-            user.site_uuid = row['site_uuid']
         return user
-
-    def find_user_by_id(self, user_id: int) -> Optional['User']:
-        """
-        Find a user by their ID.
-
-        Args:
-            user_id: The user's ID
-
-        Returns:
-            Optional[User]: The user if found, None otherwise
-        """
-        from models.user import User
-
-        with self.get_cursor() as cursor:
-            cursor.execute(
-                "SELECT id, uuid, site_id, site_uuid, email, password_hash, is_verified, role, created_at, updated_at FROM users WHERE id = %s",
-                (user_id,)
-            )
-            row = cursor.fetchone()
-            return User.from_dict(row) if row else None
 
     def find_user_by_uuid(self, user_uuid: str) -> Optional['User']:
         """
@@ -421,18 +377,18 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT id, uuid, site_id, site_uuid, email, password_hash, is_verified, role, created_at, updated_at FROM users WHERE uuid = %s",
+                "SELECT uuid, site_uuid, email, password_hash, is_verified, role, created_at, updated_at FROM users WHERE uuid = %s",
                 (user_uuid,)
             )
             row = cursor.fetchone()
             return User.from_dict(row) if row else None
 
-    def find_user_by_email(self, site_id: int, email: str) -> Optional['User']:
+    def find_user_by_email(self, site_uuid: str, email: str) -> Optional['User']:
         """
         Find a user by their email address within a specific site.
 
         Args:
-            site_id: The site ID to search within
+            site_uuid: The site UUID to search within
             email: The user's email address
 
         Returns:
@@ -442,31 +398,31 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT id, uuid, site_id, site_uuid, email, password_hash, is_verified, role, created_at, updated_at FROM users WHERE site_id = %s AND email = %s",
-                (site_id, email)
+                "SELECT uuid, site_uuid, email, password_hash, is_verified, role, created_at, updated_at FROM users WHERE site_uuid = %s AND email = %s",
+                (site_uuid, email)
             )
             row = cursor.fetchone()
             return User.from_dict(row) if row else None
 
-    def list_users_by_site(self, site_id: int) -> List[User]:
+    def list_users_by_site(self, site_uuid: str) -> List[User]:
         """
         List all users for a specific site.
 
         Args:
-            site_id: The ID of the site
+            site_uuid: The UUID of the site
 
         Returns:
             List of User models
         """
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT id, uuid, site_id, site_uuid, email, password_hash, is_verified, role, created_at, updated_at FROM users WHERE site_id = %s ORDER BY id",
-                (site_id,)
+                "SELECT uuid, site_uuid, email, password_hash, is_verified, role, created_at, updated_at FROM users WHERE site_uuid = %s ORDER BY created_at, uuid",
+                (site_uuid,)
             )
             rows = cursor.fetchall()
             return [User.from_dict(row) for row in rows]
 
-    def count_site_admins(self, site_id: int) -> int:
+    def count_site_admins(self, site_uuid: str) -> int:
         """
         Count admin-role users on a site.
 
@@ -474,15 +430,15 @@ class DatabaseManager:
         that site's admin access.
 
         Args:
-            site_id: The ID of the site
+            site_uuid: The UUID of the site
 
         Returns:
             Number of users with the admin role on the site
         """
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT COUNT(*) AS count FROM users WHERE site_id = %s AND role = %s",
-                (site_id, UserRole.ADMIN.value)
+                "SELECT COUNT(*) AS count FROM users WHERE site_uuid = %s AND role = %s",
+                (site_uuid, UserRole.ADMIN.value)
             )
             row = cursor.fetchone()
             return row['count'] if row else 0
@@ -492,7 +448,7 @@ class DatabaseManager:
         Update an existing user in the database.
 
         Args:
-            user: User model with all fields including id
+            user: User model with all fields including uuid
 
         Returns:
             User: The updated user model
@@ -502,32 +458,32 @@ class DatabaseManager:
                 """
                 UPDATE users
                 SET email = %s, password_hash = %s, is_verified = %s, role = %s, updated_at = %s
-                WHERE id = %s
+                WHERE uuid = %s
                 """,
-                (user.email, user.password_hash, user.is_verified, user.role.value, user.updated_at, user.id)
+                (user.email, user.password_hash, user.is_verified, user.role.value, user.updated_at, user.uuid)
             )
         return user
 
-    def delete_user(self, user_id: int) -> bool:
+    def delete_user(self, user_uuid: str) -> bool:
         """
         Delete a user and all related data from the database.
 
         Args:
-            user_id: The ID of the user to delete
+            user_uuid: The UUID of the user to delete
 
         Returns:
             bool: True if user was deleted, False if user not found
         """
         with self.get_cursor(commit=True) as cursor:
             # Delete related tokens first (foreign key constraints)
-            cursor.execute("DELETE FROM auth_tokens WHERE user_id = %s", (user_id,))
-            cursor.execute("DELETE FROM refresh_tokens WHERE user_id = %s", (user_id,))
-            cursor.execute("DELETE FROM email_verification_tokens WHERE user_id = %s", (user_id,))
-            cursor.execute("DELETE FROM password_reset_tokens WHERE user_id = %s", (user_id,))
-            cursor.execute("DELETE FROM email_change_requests WHERE user_id = %s", (user_id,))
+            cursor.execute("DELETE FROM auth_tokens WHERE user_uuid = %s", (user_uuid,))
+            cursor.execute("DELETE FROM refresh_tokens WHERE user_uuid = %s", (user_uuid,))
+            cursor.execute("DELETE FROM email_verification_tokens WHERE user_uuid = %s", (user_uuid,))
+            cursor.execute("DELETE FROM password_reset_tokens WHERE user_uuid = %s", (user_uuid,))
+            cursor.execute("DELETE FROM email_change_requests WHERE user_uuid = %s", (user_uuid,))
 
             # Delete the user
-            cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
+            cursor.execute("DELETE FROM users WHERE uuid = %s", (user_uuid,))
             return cursor.rowcount > 0
 
     # AuthToken operations
@@ -544,10 +500,10 @@ class DatabaseManager:
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO auth_tokens (site_id, user_id, site_uuid, user_uuid, token, expires_at, created_at)
-                VALUES (%s, %s, (SELECT uuid FROM sites WHERE id = %s), (SELECT uuid FROM users WHERE id = %s), %s, %s, %s)
+                INSERT INTO auth_tokens (site_uuid, user_uuid, token, expires_at, created_at)
+                VALUES (%s, %s, %s, %s, %s)
                 """,
-                (auth_token.site_id, auth_token.user_id, auth_token.site_id, auth_token.user_id, auth_token.token, auth_token.expires_at, auth_token.created_at)
+                (auth_token.site_uuid, auth_token.user_uuid, auth_token.token, auth_token.expires_at, auth_token.created_at)
             )
         return auth_token
 
@@ -565,7 +521,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT site_id, user_id, site_uuid, user_uuid, token, expires_at, created_at FROM auth_tokens WHERE token = %s",
+                "SELECT site_uuid, user_uuid, token, expires_at, created_at FROM auth_tokens WHERE token = %s",
                 (token,)
             )
             row = cursor.fetchone()
@@ -585,18 +541,18 @@ class DatabaseManager:
             cursor.execute("DELETE FROM auth_tokens WHERE token = %s", (token,))
             return cursor.rowcount > 0
 
-    def delete_auth_tokens_by_user(self, user_id: int) -> int:
+    def delete_auth_tokens_by_user(self, user_uuid: str) -> int:
         """
         Delete all auth tokens for a user.
 
         Args:
-            user_id: The user's ID
+            user_uuid: The user's UUID
 
         Returns:
             int: Number of tokens deleted
         """
         with self.get_cursor(commit=True) as cursor:
-            cursor.execute("DELETE FROM auth_tokens WHERE user_id = %s", (user_id,))
+            cursor.execute("DELETE FROM auth_tokens WHERE user_uuid = %s", (user_uuid,))
             return cursor.rowcount
 
     def delete_expired_auth_tokens(self, current_time: int) -> int:
@@ -627,11 +583,11 @@ class DatabaseManager:
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO refresh_tokens (site_id, user_id, site_uuid, user_uuid, token, family_id, expires_at, created_at, used_at, revoked)
-                VALUES (%s, %s, (SELECT uuid FROM sites WHERE id = %s), (SELECT uuid FROM users WHERE id = %s), %s, %s, %s, %s, %s, %s)
+                INSERT INTO refresh_tokens (site_uuid, user_uuid, token, family_id, expires_at, created_at, used_at, revoked)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (refresh_token.site_id, refresh_token.user_id, refresh_token.site_id, refresh_token.user_id,
-                 refresh_token.token, refresh_token.family_id, refresh_token.expires_at, refresh_token.created_at,
+                (refresh_token.site_uuid, refresh_token.user_uuid, refresh_token.token,
+                 refresh_token.family_id, refresh_token.expires_at, refresh_token.created_at,
                  refresh_token.used_at, refresh_token.revoked)
             )
         return refresh_token
@@ -650,7 +606,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                """SELECT site_id, user_id, site_uuid, user_uuid, token, family_id, expires_at, created_at, used_at, revoked
+                """SELECT site_uuid, user_uuid, token, family_id, expires_at, created_at, used_at, revoked
                    FROM refresh_tokens WHERE token = %s""",
                 (token,)
             )
@@ -706,25 +662,25 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                """SELECT site_id, user_id, site_uuid, user_uuid, token, family_id, expires_at, created_at, used_at, revoked
+                """SELECT site_uuid, user_uuid, token, family_id, expires_at, created_at, used_at, revoked
                    FROM refresh_tokens WHERE family_id = %s ORDER BY created_at DESC LIMIT 1""",
                 (family_id,)
             )
             row = cursor.fetchone()
             return RefreshToken.from_dict(row) if row else None
 
-    def delete_refresh_tokens_by_user(self, user_id: int) -> int:
+    def delete_refresh_tokens_by_user(self, user_uuid: str) -> int:
         """
         Delete all refresh tokens for a user.
 
         Args:
-            user_id: The user's ID
+            user_uuid: The user's UUID
 
         Returns:
             int: Number of tokens deleted
         """
         with self.get_cursor(commit=True) as cursor:
-            cursor.execute("DELETE FROM refresh_tokens WHERE user_id = %s", (user_id,))
+            cursor.execute("DELETE FROM refresh_tokens WHERE user_uuid = %s", (user_uuid,))
             return cursor.rowcount
 
     def delete_expired_refresh_tokens(self, current_time: int) -> int:
@@ -755,10 +711,10 @@ class DatabaseManager:
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO email_verification_tokens (site_id, user_id, site_uuid, user_uuid, token, expires_at, created_at)
-                VALUES (%s, %s, (SELECT uuid FROM sites WHERE id = %s), (SELECT uuid FROM users WHERE id = %s), %s, %s, %s)
+                INSERT INTO email_verification_tokens (site_uuid, user_uuid, token, expires_at, created_at)
+                VALUES (%s, %s, %s, %s, %s)
                 """,
-                (token.site_id, token.user_id, token.site_id, token.user_id, token.token, token.expires_at, token.created_at)
+                (token.site_uuid, token.user_uuid, token.token, token.expires_at, token.created_at)
             )
         return token
 
@@ -776,7 +732,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT site_id, user_id, site_uuid, user_uuid, token, expires_at, created_at FROM email_verification_tokens WHERE token = %s",
+                "SELECT site_uuid, user_uuid, token, expires_at, created_at FROM email_verification_tokens WHERE token = %s",
                 (token,)
             )
             row = cursor.fetchone()
@@ -824,10 +780,10 @@ class DatabaseManager:
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO password_reset_tokens (site_id, user_id, site_uuid, user_uuid, token, expires_at, created_at, used)
-                VALUES (%s, %s, (SELECT uuid FROM sites WHERE id = %s), (SELECT uuid FROM users WHERE id = %s), %s, %s, %s, %s)
+                INSERT INTO password_reset_tokens (site_uuid, user_uuid, token, expires_at, created_at, used)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                (token.site_id, token.user_id, token.site_id, token.user_id, token.token, token.expires_at, token.created_at, token.used)
+                (token.site_uuid, token.user_uuid, token.token, token.expires_at, token.created_at, token.used)
             )
         return token
 
@@ -845,7 +801,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT site_id, user_id, site_uuid, user_uuid, token, expires_at, created_at, used FROM password_reset_tokens WHERE token = %s",
+                "SELECT site_uuid, user_uuid, token, expires_at, created_at, used FROM password_reset_tokens WHERE token = %s",
                 (token,)
             )
             row = cursor.fetchone()
@@ -893,10 +849,10 @@ class DatabaseManager:
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO email_change_requests (site_id, user_id, site_uuid, user_uuid, new_email, token, expires_at, created_at)
-                VALUES (%s, %s, (SELECT uuid FROM sites WHERE id = %s), (SELECT uuid FROM users WHERE id = %s), %s, %s, %s, %s)
+                INSERT INTO email_change_requests (site_uuid, user_uuid, new_email, token, expires_at, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                (request.site_id, request.user_id, request.site_id, request.user_id, request.new_email, request.token, request.expires_at, request.created_at)
+                (request.site_uuid, request.user_uuid, request.new_email, request.token, request.expires_at, request.created_at)
             )
         return request
 
@@ -914,7 +870,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT site_id, user_id, site_uuid, user_uuid, new_email, token, expires_at, created_at FROM email_change_requests WHERE token = %s",
+                "SELECT site_uuid, user_uuid, new_email, token, expires_at, created_at FROM email_change_requests WHERE token = %s",
                 (token,)
             )
             row = cursor.fetchone()
@@ -957,38 +913,32 @@ class DatabaseManager:
             event: WebhookEvent model with delivery details
 
         Returns:
-            WebhookEvent: The created event with auto-generated id
+            WebhookEvent: The created event
         """
-        if event.uuid is None:
-            event.uuid = generate_uuid7()
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO webhook_events (uuid, site_id, site_uuid, event_type, payload, response_status, response_body, success, created_at)
-                VALUES (%s, %s, (SELECT uuid FROM sites WHERE id = %s), %s, %s, %s, %s, %s, %s)
-                RETURNING id, site_uuid
+                INSERT INTO webhook_events (uuid, site_uuid, event_type, payload, response_status, response_body, success, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (event.uuid, event.site_id, event.site_id, event.event_type, event.payload, event.response_status, event.response_body, event.success, event.created_at)
+                (event.uuid, event.site_uuid, event.event_type, event.payload, event.response_status, event.response_body, event.success, event.created_at)
             )
-            row = cursor.fetchone()
-            event.id = row['id']
-            event.site_uuid = row['site_uuid']
         return event
 
-    def list_webhook_events_by_site(self, site_id: int) -> List[WebhookEvent]:
+    def list_webhook_events_by_site(self, site_uuid: str) -> List[WebhookEvent]:
         """
         List all webhook events for a specific site.
 
         Args:
-            site_id: The site ID
+            site_uuid: The site UUID
 
         Returns:
             List of WebhookEvent models ordered by most recent first
         """
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT id, uuid, site_id, site_uuid, event_type, payload, response_status, response_body, success, created_at FROM webhook_events WHERE site_id = %s ORDER BY created_at DESC",
-                (site_id,)
+                "SELECT uuid, site_uuid, event_type, payload, response_status, response_body, success, created_at FROM webhook_events WHERE site_uuid = %s ORDER BY created_at DESC",
+                (site_uuid,)
             )
             rows = cursor.fetchall()
             return [WebhookEvent.from_dict(row) for row in rows]

@@ -1,5 +1,12 @@
 # Tenant Migration: int identifiers → UUID
 
+> **⛔ MIGRATION WINDOW CLOSED (2026-07).** All five tenants completed this
+> migration and the contract phase shipped: Aegis is now **UUID-only**. The
+> dual-support shim described below no longer exists — integer identifiers are
+> rejected, responses carry only `uuid`/`site_uuid`/`user_uuid`, and the
+> int→UUID mapping columns have been dropped. This document is retained as a
+> historical record of the migration process; do not follow it as a runbook.
+
 This is the one-time runbook a **tenant site** runs to move off integer
 identifiers and onto UUIDs. Every tenant must complete it before Aegis ships
 **phase 2 (contract)**, which drops the integer `id`/foreign-key columns. After

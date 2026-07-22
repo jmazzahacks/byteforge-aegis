@@ -5,6 +5,7 @@ import time
 from database import db_manager
 from byteforge_aegis_models import Site, UserRole
 from models.user import User
+from utils.uuid7 import generate_uuid7
 
 
 def test_admin_list_users_success(test_client, admin_auth_token, sample_user, admin_user):
@@ -81,7 +82,7 @@ def test_admin_list_users_site_isolation(test_client, sample_site, admin_user, a
     # Create another site with users
     current_time = int(time.time())
     other_site = Site(
-        id=0,
+        uuid=generate_uuid7(),
         name="Other Site",
         domain="other.example.com",
         frontend_url="http://other.example.com",
@@ -95,8 +96,8 @@ def test_admin_list_users_site_isolation(test_client, sample_site, admin_user, a
 
     # Create a user on the other site
     other_user = User(
-        id=0,
-        site_id=other_site.id,
+        uuid=generate_uuid7(),
+        site_uuid=other_site.uuid,
         email="other@example.com",
         password_hash="$2b$12$hashed_password",
         is_verified=True,
@@ -133,7 +134,7 @@ def test_admin_list_users_returns_user_fields(test_client, admin_auth_token, adm
     assert len(data) >= 1
 
     user = data[0]
-    expected_fields = ['id', 'site_id', 'email', 'is_verified', 'role', 'created_at', 'updated_at']
+    expected_fields = ['uuid', 'site_uuid', 'email', 'is_verified', 'role', 'created_at', 'updated_at']
     for field in expected_fields:
         assert field in user, f"Expected field '{field}' not found in response"
 
@@ -145,8 +146,8 @@ def test_admin_list_users_expired_token(test_client, sample_site, admin_user):
     current_time = int(time.time())
     expired_token = AuthToken(
         token="expired_admin_token",
-        site_id=sample_site.id,
-        user_id=admin_user.id,
+        site_uuid=sample_site.uuid,
+        user_uuid=admin_user.uuid,
         expires_at=current_time - 3600,  # Expired 1 hour ago
         created_at=current_time - 7200
     )

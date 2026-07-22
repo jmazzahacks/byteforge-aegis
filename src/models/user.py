@@ -8,8 +8,9 @@ class User(BaseUser):
     """
     Backend User model extending the shared BaseUser with password_hash.
 
-    The shared BaseUser contains: id, site_id, email, is_verified, role, created_at, updated_at.
-    This subclass adds password_hash which is backend-only (never exposed to clients).
+    The shared BaseUser contains: uuid, site_uuid, email, is_verified, role,
+    created_at, updated_at. This subclass adds password_hash which is
+    backend-only (never exposed to clients).
     """
     password_hash: Optional[str] = None
 
@@ -21,10 +22,8 @@ class User(BaseUser):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'User':
         return cls(
-            id=data['id'],
-            site_id=data['site_id'],
-            uuid=data.get('uuid'),
-            site_uuid=data.get('site_uuid'),
+            uuid=data['uuid'],
+            site_uuid=data['site_uuid'],
             email=data['email'],
             password_hash=data.get('password_hash'),
             is_verified=data['is_verified'],

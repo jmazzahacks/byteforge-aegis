@@ -14,12 +14,12 @@ list_users_bp = Blueprint('list_users', __name__)
 @require_master_api_key
 def list_users_by_site_id(site_id: str):
     """
-    List all users for a site by identifier (integer id or UUID).
+    List all users for a site by UUID.
 
     Requires master API key (X-API-Key header).
 
     Path parameters:
-        site_id: Site identifier (integer id or UUID)
+        site_id: Site UUID
 
     Returns:
         200: List of users
@@ -30,7 +30,7 @@ def list_users_by_site_id(site_id: str):
     if site is None:
         return jsonify({'error': 'Site not found'}), 404
 
-    users = db_manager.list_users_by_site(site.id)
+    users = db_manager.list_users_by_site(site.uuid)
     schema = UserResponseSchema(many=True)
     return jsonify(schema.dump(users)), 200
 
@@ -61,6 +61,6 @@ def list_users_by_domain():
     if site is None:
         return jsonify({'error': 'Site not found'}), 404
 
-    users = db_manager.list_users_by_site(site.id)
+    users = db_manager.list_users_by_site(site.uuid)
     schema = UserResponseSchema(many=True)
     return jsonify(schema.dump(users)), 200

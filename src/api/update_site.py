@@ -43,7 +43,7 @@ def update_site(validated_data, site_id):
     if not validated_data:
         return jsonify({'error': 'At least one field must be provided'}), 400
 
-    # Find existing site (by integer id or UUID)
+    # Find existing site
     site = resolve_site(site_id)
     if site is None:
         return jsonify({'error': 'Site not found'}), 404

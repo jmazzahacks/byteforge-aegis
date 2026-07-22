@@ -33,12 +33,12 @@ def admin_register_user(validated_data: dict):
         403: User does not have admin role
     """
     try:
-        site_id = request.user.site_id
+        site_uuid = request.user.site_uuid
         role_str = validated_data.get('role', 'user')
         role = UserRole.ADMIN if role_str == 'admin' else UserRole.USER
 
         user = auth_service.register_user(
-            site_id=site_id,
+            site_uuid=site_uuid,
             email=validated_data['email'],
             password=None,
             role=role,

@@ -18,7 +18,7 @@ def login(validated_data):
     Login a user.
 
     Request body:
-        site_id: ID of the site
+        site_id: UUID of the site
         email: User email
         password: User password
 
@@ -29,7 +29,7 @@ def login(validated_data):
     """
     try:
         login_result = auth_service.login(
-            site_id=validated_data['site_id'],
+            site_uuid=validated_data['site_id'],
             email=validated_data['email'],
             password=validated_data['password']
         )

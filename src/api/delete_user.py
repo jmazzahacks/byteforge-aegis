@@ -19,7 +19,7 @@ def delete_user(user_id: str):
     Requires master API key (X-API-Key header).
 
     Path parameters:
-        user_id: User identifier to delete (integer id or UUID)
+        user_id: User UUID to delete
 
     Returns:
         200: User deleted successfully
@@ -27,17 +27,17 @@ def delete_user(user_id: str):
         404: User not found
         409: User is the last admin of their site
     """
-    # Check if user exists first (by integer id or UUID)
+    # Check if user exists first
     user = resolve_user(user_id)
     if not user:
         return jsonify({'error': 'User not found'}), 404
 
     # Refuse to orphan a site's admin access: never delete its last admin.
-    if user.role == UserRole.ADMIN and db_manager.count_site_admins(user.site_id) <= 1:
+    if user.role == UserRole.ADMIN and db_manager.count_site_admins(user.site_uuid) <= 1:
         return jsonify({'error': 'Cannot delete the last admin of a site'}), 409
 
-    deleted = db_manager.delete_user(user.id)
+    deleted = db_manager.delete_user(user.uuid)
     if deleted:
-        return jsonify({'message': f'User {user.id} deleted successfully'}), 200
+        return jsonify({'message': f'User {user.uuid} deleted successfully'}), 200
     else:
         return jsonify({'error': 'Failed to delete user'}), 500

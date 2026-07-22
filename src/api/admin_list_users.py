@@ -27,7 +27,7 @@ def admin_list_users():
         401: Missing or invalid token
         403: User does not have admin role
     """
-    site_id = request.user.site_id
-    users = db_manager.list_users_by_site(site_id)
+    site_uuid = request.user.site_uuid
+    users = db_manager.list_users_by_site(site_uuid)
     schema = UserResponseSchema(many=True)
     return jsonify(schema.dump(users)), 200

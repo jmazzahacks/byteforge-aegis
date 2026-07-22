@@ -18,6 +18,7 @@ import requests
 
 from database import db_manager
 from byteforge_aegis_models import Site, WebhookEvent, WebhookPayload
+from utils.uuid7 import generate_uuid7
 
 logger = logging.getLogger(__name__)
 
@@ -117,11 +118,11 @@ class WebhookService:
             success = 200 <= response.status_code < 300
         except requests.exceptions.RequestException as e:
             response_body = str(e)[:1000]
-            logger.warning(f"Webhook delivery failed for site {site.id}: {e}")
+            logger.warning(f"Webhook delivery failed for site {site.uuid}: {e}")
 
         event = WebhookEvent(
-            id=0,
-            site_id=site.id,
+            uuid=generate_uuid7(),
+            site_uuid=site.uuid,
             event_type=payload.event_type,
             payload=payload_json,
             response_status=response_status,
@@ -133,7 +134,7 @@ class WebhookService:
         try:
             return db_manager.create_webhook_event(event)
         except Exception as e:
-            logger.error(f"Failed to log webhook event for site {site.id}: {e}")
+            logger.error(f"Failed to log webhook event for site {site.uuid}: {e}")
             return None
 
 

@@ -31,7 +31,7 @@ def change_password(validated_data):
     """
     try:
         user = auth_service.change_password(
-            user_id=request.user_id,
+            user_uuid=request.user_uuid,
             old_password=validated_data['old_password'],
             new_password=validated_data['new_password']
         )

@@ -11,7 +11,7 @@ def require_auth(func):
     Decorator to require authentication for a route.
     Extracts the auth token from the Authorization header and validates it.
 
-    Sets request.user_id with the authenticated user's ID.
+    Sets request.user_uuid with the authenticated user's UUID.
 
     Returns 401 if token is missing or invalid.
     """
@@ -27,12 +27,12 @@ def require_auth(func):
 
         token = auth_header[7:]  # Remove 'Bearer ' prefix
 
-        user_id = token_service.validate_auth_token(token)
+        user_uuid = token_service.validate_auth_token(token)
 
-        if user_id is None:
+        if user_uuid is None:
             return jsonify({'error': 'Invalid or expired token'}), 401
 
-        request.user_id = user_id
+        request.user_uuid = user_uuid
         return func(*args, **kwargs)
 
     return wrapper

@@ -77,9 +77,7 @@ class ConfirmEmailChangeSchema(Schema):
 
 class UserResponseSchema(Schema):
     """Schema for user response (no sensitive data)"""
-    id = fields.Integer()
     uuid = fields.String()
-    site_id = fields.Integer()
     site_uuid = fields.String()
     email = fields.Email()
     is_verified = fields.Boolean()
@@ -95,7 +93,7 @@ class UserResponseSchema(Schema):
 class AuthTokenResponseSchema(Schema):
     """Schema for auth token response"""
     token = fields.String()
-    user_id = fields.Integer()
+    user_uuid = fields.String()
     expires_at = fields.Integer()
 
 
@@ -107,8 +105,8 @@ class RefreshTokenRequestSchema(Schema):
 class RefreshTokenResponseSchema(Schema):
     """Schema for refresh token response"""
     token = fields.String()
-    user_id = fields.Integer()
-    site_id = fields.Integer()
+    user_uuid = fields.String()
+    site_uuid = fields.String()
     expires_at = fields.Integer()
 
 

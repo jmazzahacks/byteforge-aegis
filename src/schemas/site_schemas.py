@@ -36,7 +36,6 @@ class UpdateSiteRequestSchema(Schema):
 
 class SiteResponseSchema(Schema):
     """Schema for site response (admin-only — includes secrets)."""
-    id = fields.Integer()
     uuid = fields.String()
     name = fields.String()
     domain = fields.String()
@@ -56,7 +55,6 @@ class SiteResponseSchema(Schema):
 
 class PublicSiteResponseSchema(Schema):
     """Schema for site response on public endpoints. Excludes secrets."""
-    id = fields.Integer()
     uuid = fields.String()
     name = fields.String()
     domain = fields.String()

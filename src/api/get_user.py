@@ -1,7 +1,7 @@
 """
 Tenant-key-gated single-user lookup endpoint.
 
-Allows a tenant backend to resolve an Aegis user_id to a user record
+Allows a tenant backend to resolve an Aegis user UUID to a user record
 (including role) for server-to-server authorization checks. Scoped to
 the tenant's own site by the tenant API key.
 """
@@ -26,20 +26,20 @@ def get_user_by_id(site_id: str, user_id: str):
     Get a single user by id, scoped to the requesting tenant's site.
 
     Requires X-Tenant-Api-Key header matching the site in the path. Both
-    site_id and user_id may be supplied as an integer id or a UUID.
+    site_id and user_id are supplied as UUIDs.
 
     Path parameters:
         site_id: Site identifier (must match the supplied tenant API key)
         user_id: User identifier to look up
 
     Returns:
-        200: User record (id, uuid, site_id, site_uuid, email, role, timestamps)
+        200: User record (uuid, site_uuid, email, role, timestamps)
         401: Missing/invalid tenant API key, unknown user, or user belongs
              to a different site (uniform body to prevent enumeration)
     """
     site = resolve_site(site_id)
     user = resolve_user(user_id)
-    if user is None or site is None or user.site_id != site.id:
+    if user is None or site is None or user.site_uuid != site.uuid:
         return jsonify(TENANT_API_KEY_ERROR_BODY), TENANT_API_KEY_ERROR_STATUS
 
     schema = UserResponseSchema()

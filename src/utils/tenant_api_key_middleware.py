@@ -25,8 +25,8 @@ def require_tenant_api_key(func):
     Decorator that gates a route on the X-Tenant-Api-Key header.
 
     Reads `site_id` from the JSON body (POST routes) or from `view_args`
-    (GET routes with `<site_id>` in the path) — accepting either an integer
-    id or a UUID — resolves the site, and compares the supplied header value
+    (GET routes with `<site_id>` in the path) — as a site UUID —
+    resolves the site, and compares the supplied header value
     against the stored tenant_api_key using constant-time comparison. Any
     failure (missing header, missing site_id, unknown site, mismatch) returns
     the same 401 error body so response shape can't be used to distinguish
@@ -45,10 +45,7 @@ def require_tenant_api_key(func):
         if site_identifier is None:
             site_identifier = (request.view_args or {}).get('site_id')
 
-        # warn_on_int=False: this resolution happens before the key check, so
-        # unauthenticated traffic must not feed the legacy_int_identifier bake
-        # signal. Gated handlers/schemas re-resolve post-auth and warn there.
-        site = resolve_site(site_identifier, warn_on_int=False)
+        site = resolve_site(site_identifier)
         if site is None or not site.tenant_api_key:
             return jsonify(_UNIFORM_ERROR[0]), _UNIFORM_ERROR[1]
 

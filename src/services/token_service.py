@@ -25,13 +25,13 @@ class TokenService:
         """
         return secrets.token_urlsafe(32)
 
-    def create_auth_token(self, site_id: int, user_id: int) -> AuthToken:
+    def create_auth_token(self, site_uuid: str, user_uuid: str) -> AuthToken:
         """
         Create a new authentication token for user session management.
 
         Args:
-            site_id: The ID of the site this token belongs to
-            user_id: The ID of the user to create the token for
+            site_uuid: The UUID of the site this token belongs to
+            user_uuid: The UUID of the user to create the token for
 
         Returns:
             AuthToken: The created auth token model
@@ -42,15 +42,15 @@ class TokenService:
 
         auth_token = AuthToken(
             token=token_str,
-            site_id=site_id,
-            user_id=user_id,
+            user_uuid=user_uuid,
             expires_at=expires_at,
+            site_uuid=site_uuid,
             created_at=created_at
         )
 
         return db_manager.create_auth_token(auth_token)
 
-    def validate_auth_token(self, token: str) -> Optional[int]:
+    def validate_auth_token(self, token: str) -> Optional[str]:
         """
         Validate an authentication token and check if it's still valid.
 
@@ -58,7 +58,7 @@ class TokenService:
             token: The auth token string to validate
 
         Returns:
-            Optional[int]: The user_id if token is valid, None if invalid or expired
+            Optional[str]: The user_uuid if token is valid, None if invalid or expired
         """
         auth_token = db_manager.find_auth_token_by_token(token)
 
@@ -69,7 +69,7 @@ class TokenService:
         if auth_token.expires_at < current_time:
             return None
 
-        return auth_token.user_id
+        return auth_token.user_uuid
 
     def invalidate_auth_token(self, token: str) -> bool:
         """
@@ -83,22 +83,22 @@ class TokenService:
         """
         return db_manager.delete_auth_token(token)
 
-    def invalidate_user_tokens(self, user_id: int) -> None:
+    def invalidate_user_tokens(self, user_uuid: str) -> None:
         """
         Invalidate all authentication tokens for a specific user.
 
         Args:
-            user_id: The ID of the user whose tokens should be invalidated
+            user_uuid: The UUID of the user whose tokens should be invalidated
         """
-        db_manager.delete_auth_tokens_by_user(user_id)
+        db_manager.delete_auth_tokens_by_user(user_uuid)
 
-    def create_refresh_token(self, site_id: int, user_id: int, family_id: Optional[str] = None) -> RefreshToken:
+    def create_refresh_token(self, site_uuid: str, user_uuid: str, family_id: Optional[str] = None) -> RefreshToken:
         """
         Create a new refresh token for long-lived session management.
 
         Args:
-            site_id: The ID of the site this token belongs to
-            user_id: The ID of the user to create the token for
+            site_uuid: The UUID of the site this token belongs to
+            user_uuid: The UUID of the user to create the token for
             family_id: Optional family ID for token rotation (generates new if None)
 
         Returns:
@@ -113,8 +113,8 @@ class TokenService:
 
         refresh_token = RefreshToken(
             token=token_str,
-            site_id=site_id,
-            user_id=user_id,
+            site_uuid=site_uuid,
+            user_uuid=user_uuid,
             family_id=family_id,
             expires_at=expires_at,
             created_at=created_at,
@@ -135,7 +135,7 @@ class TokenService:
             token: The refresh token string to validate
 
         Returns:
-            Optional[RefreshTokenResult]: Result containing user_id, site_id, and new token if valid
+            Optional[RefreshTokenResult]: Result containing user_uuid, site_uuid, and new token if valid
 
         Raises:
             ValueError: If token reuse detected (potential theft)
@@ -161,13 +161,13 @@ class TokenService:
                     latest = db_manager.find_latest_refresh_token_in_family(refresh_token.family_id)
                     if latest and latest.token != refresh_token.token:
                         return RefreshTokenResult(
-                            user_id=latest.user_id,
-                            site_id=latest.site_id,
+                            user_uuid=latest.user_uuid,
+                            site_uuid=latest.site_uuid,
                             new_refresh_token=latest
                         )
                     return RefreshTokenResult(
-                        user_id=refresh_token.user_id,
-                        site_id=refresh_token.site_id,
+                        user_uuid=refresh_token.user_uuid,
+                        site_uuid=refresh_token.site_uuid,
                         new_refresh_token=None
                     )
                 else:
@@ -176,38 +176,38 @@ class TokenService:
 
             db_manager.mark_refresh_token_used(token, current_time)
             new_token = self.create_refresh_token(
-                refresh_token.site_id,
-                refresh_token.user_id,
+                refresh_token.site_uuid,
+                refresh_token.user_uuid,
                 refresh_token.family_id
             )
             return RefreshTokenResult(
-                user_id=refresh_token.user_id,
-                site_id=refresh_token.site_id,
+                user_uuid=refresh_token.user_uuid,
+                site_uuid=refresh_token.site_uuid,
                 new_refresh_token=new_token
             )
         else:
             return RefreshTokenResult(
-                user_id=refresh_token.user_id,
-                site_id=refresh_token.site_id,
+                user_uuid=refresh_token.user_uuid,
+                site_uuid=refresh_token.site_uuid,
                 new_refresh_token=None
             )
 
-    def invalidate_user_refresh_tokens(self, user_id: int) -> None:
+    def invalidate_user_refresh_tokens(self, user_uuid: str) -> None:
         """
         Invalidate all refresh tokens for a specific user.
 
         Args:
-            user_id: The ID of the user whose refresh tokens should be invalidated
+            user_uuid: The UUID of the user whose refresh tokens should be invalidated
         """
-        db_manager.delete_refresh_tokens_by_user(user_id)
+        db_manager.delete_refresh_tokens_by_user(user_uuid)
 
-    def create_email_verification_token(self, site_id: int, user_id: int) -> EmailVerificationToken:
+    def create_email_verification_token(self, site_uuid: str, user_uuid: str) -> EmailVerificationToken:
         """
         Create an email verification token for confirming user email ownership.
 
         Args:
-            site_id: The ID of the site this token belongs to
-            user_id: The ID of the user to create the verification token for
+            site_uuid: The UUID of the site this token belongs to
+            user_uuid: The UUID of the user to create the verification token for
 
         Returns:
             EmailVerificationToken: The created verification token model
@@ -218,15 +218,15 @@ class TokenService:
 
         email_token = EmailVerificationToken(
             token=token_str,
-            site_id=site_id,
-            user_id=user_id,
+            site_uuid=site_uuid,
+            user_uuid=user_uuid,
             expires_at=expires_at,
             created_at=created_at
         )
 
         return db_manager.create_email_verification_token(email_token)
 
-    def check_email_verification_token(self, token: str) -> Optional[int]:
+    def check_email_verification_token(self, token: str) -> Optional[str]:
         """
         Check an email verification token without consuming it.
 
@@ -237,7 +237,7 @@ class TokenService:
             token: The email verification token string to check
 
         Returns:
-            Optional[int]: The user_id if token is valid, None if invalid or expired
+            Optional[str]: The user_uuid if token is valid, None if invalid or expired
         """
         email_token = db_manager.find_email_verification_token(token)
 
@@ -248,9 +248,9 @@ class TokenService:
         if email_token.expires_at < current_time:
             return None
 
-        return email_token.user_id
+        return email_token.user_uuid
 
-    def validate_email_verification_token(self, token: str) -> Optional[int]:
+    def validate_email_verification_token(self, token: str) -> Optional[str]:
         """
         Validate an email verification token and mark it as used by deleting it.
 
@@ -258,7 +258,7 @@ class TokenService:
             token: The email verification token string to validate
 
         Returns:
-            Optional[int]: The user_id if token is valid, None if invalid or expired
+            Optional[str]: The user_uuid if token is valid, None if invalid or expired
         """
         email_token = db_manager.find_email_verification_token(token)
 
@@ -272,15 +272,15 @@ class TokenService:
         # Delete token after successful validation (one-time use)
         db_manager.delete_email_verification_token(token)
 
-        return email_token.user_id
+        return email_token.user_uuid
 
-    def create_password_reset_token(self, site_id: int, user_id: int) -> PasswordResetToken:
+    def create_password_reset_token(self, site_uuid: str, user_uuid: str) -> PasswordResetToken:
         """
         Create a password reset token for forgotten password recovery.
 
         Args:
-            site_id: The ID of the site this token belongs to
-            user_id: The ID of the user requesting password reset
+            site_uuid: The UUID of the site this token belongs to
+            user_uuid: The UUID of the user requesting password reset
 
         Returns:
             PasswordResetToken: The created password reset token model
@@ -291,8 +291,8 @@ class TokenService:
 
         reset_token = PasswordResetToken(
             token=token_str,
-            site_id=site_id,
-            user_id=user_id,
+            site_uuid=site_uuid,
+            user_uuid=user_uuid,
             expires_at=expires_at,
             created_at=created_at,
             used=False
@@ -300,7 +300,7 @@ class TokenService:
 
         return db_manager.create_password_reset_token(reset_token)
 
-    def validate_password_reset_token(self, token: str) -> Optional[int]:
+    def validate_password_reset_token(self, token: str) -> Optional[str]:
         """
         Validate a password reset token and mark it as used.
 
@@ -308,7 +308,7 @@ class TokenService:
             token: The password reset token string to validate
 
         Returns:
-            Optional[int]: The user_id if token is valid, None if invalid, expired, or already used
+            Optional[str]: The user_uuid if token is valid, None if invalid, expired, or already used
         """
         reset_token = db_manager.find_password_reset_token(token)
 
@@ -322,15 +322,15 @@ class TokenService:
         # Mark token as used
         db_manager.mark_password_reset_token_used(token)
 
-        return reset_token.user_id
+        return reset_token.user_uuid
 
-    def create_email_change_token(self, site_id: int, user_id: int, new_email: str) -> EmailChangeRequest:
+    def create_email_change_token(self, site_uuid: str, user_uuid: str, new_email: str) -> EmailChangeRequest:
         """
         Create an email change request token for updating user email address.
 
         Args:
-            site_id: The ID of the site this token belongs to
-            user_id: The ID of the user requesting email change
+            site_uuid: The UUID of the site this token belongs to
+            user_uuid: The UUID of the user requesting email change
             new_email: The new email address to be verified
 
         Returns:
@@ -342,8 +342,8 @@ class TokenService:
 
         change_request = EmailChangeRequest(
             token=token_str,
-            site_id=site_id,
-            user_id=user_id,
+            site_uuid=site_uuid,
+            user_uuid=user_uuid,
             new_email=new_email,
             expires_at=expires_at,
             created_at=created_at

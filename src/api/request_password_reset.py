@@ -18,7 +18,7 @@ def request_password_reset(validated_data):
     Request a password reset token.
 
     Request body:
-        site_id: ID of the site
+        site_id: UUID of the site
         email: User email
 
     Returns:
@@ -26,7 +26,7 @@ def request_password_reset(validated_data):
     """
     try:
         auth_service.request_password_reset(
-            site_id=validated_data['site_id'],
+            site_uuid=validated_data['site_id'],
             email=validated_data['email']
         )
     except ValueError:

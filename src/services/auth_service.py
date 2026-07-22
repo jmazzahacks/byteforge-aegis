@@ -11,6 +11,7 @@ from services.password_service import password_service
 from services.token_service import token_service
 from services.email_service import email_service
 from services.webhook_service import webhook_service
+from utils.uuid7 import generate_uuid7
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ class AuthService:
 
     def register_user(
         self,
-        site_id: int,
+        site_uuid: str,
         email: str,
         password: Optional[str],
         role: UserRole = UserRole.USER,
@@ -36,7 +37,7 @@ class AuthService:
         email instead and returns None. This prevents email enumeration attacks.
 
         Args:
-            site_id: The ID of the site to register the user for
+            site_uuid: The UUID of the site to register the user for
             email: The user's email address
             password: The user's plain text password (None for admin-created users who will set password via email)
             role: The user's role (defaults to USER)
@@ -51,7 +52,7 @@ class AuthService:
                         duplicate email (admin registration only)
         """
         # Get site info first - needed for all paths
-        site = db_manager.find_site_by_id(site_id)
+        site = db_manager.find_site_by_uuid(site_uuid)
         if not site:
             raise ValueError("Site not found")
 
@@ -61,7 +62,7 @@ class AuthService:
                 raise ValueError("Self-registration is not enabled for this site")
 
         # Check if email already exists for this site
-        existing_user = db_manager.find_user_by_email(site_id, email)
+        existing_user = db_manager.find_user_by_email(site.uuid, email)
         if existing_user:
             if is_admin_registration:
                 # Admin registration should know if email exists
@@ -88,8 +89,8 @@ class AuthService:
         # Create user
         current_time = int(time.time())
         user = User(
-            id=0,  # Will be set by database
-            site_id=site_id,
+            uuid=generate_uuid7(),
+            site_uuid=site.uuid,
             email=email,
             password_hash=password_hash,
             is_verified=False,
@@ -101,7 +102,7 @@ class AuthService:
         user = db_manager.create_user(user)
 
         # Create email verification token
-        verification_token = token_service.create_email_verification_token(site_id, user.id)
+        verification_token = token_service.create_email_verification_token(site.uuid, user.uuid)
 
         # Send verification email (don't fail if email fails)
         try:
@@ -120,12 +121,12 @@ class AuthService:
 
         return user
 
-    def login(self, site_id: int, email: str, password: str) -> LoginResult:
+    def login(self, site_uuid: str, email: str, password: str) -> LoginResult:
         """
         Authenticate a user with email and password for a specific site.
 
         Args:
-            site_id: The ID of the site to authenticate for
+            site_uuid: The UUID of the site to authenticate for
             email: The user's email address
             password: The user's plain text password
 
@@ -136,7 +137,7 @@ class AuthService:
             ValueError: If credentials are invalid or email not verified
         """
         # Find user by email for this site
-        user = db_manager.find_user_by_email(site_id, email)
+        user = db_manager.find_user_by_email(site_uuid, email)
         if not user:
             raise ValueError("Invalid credentials")
 
@@ -153,8 +154,8 @@ class AuthService:
             raise ValueError("Email not verified")
 
         # Create auth token and refresh token
-        auth_token = token_service.create_auth_token(site_id, user.id)
-        refresh_token = token_service.create_refresh_token(site_id, user.id)
+        auth_token = token_service.create_auth_token(site_uuid, user.uuid)
+        refresh_token = token_service.create_refresh_token(site_uuid, user.uuid)
 
         return LoginResult(auth_token=auth_token, refresh_token=refresh_token)
 
@@ -188,17 +189,17 @@ class AuthService:
         if not result:
             raise ValueError("Invalid or expired refresh token")
 
-        user = db_manager.find_user_by_id(result.user_id)
+        user = db_manager.find_user_by_uuid(result.user_uuid)
         if not user:
             raise ValueError("User not found")
         if not user.is_verified:
             raise ValueError("User account not verified")
 
-        auth_token = token_service.create_auth_token(result.site_id, result.user_id)
+        auth_token = token_service.create_auth_token(result.site_uuid, result.user_uuid)
 
         return LoginResult(auth_token=auth_token, refresh_token=result.new_refresh_token)
 
-    def check_verification_token(self, token: str, site_id: int) -> VerificationTokenStatus:
+    def check_verification_token(self, token: str, site_uuid: str) -> VerificationTokenStatus:
         """
         Check verification token status without consuming it.
 
@@ -206,9 +207,9 @@ class AuthService:
 
         Args:
             token: The email verification token
-            site_id: The site_id supplied by the caller; the token must belong
-                to a user in this site or the call is rejected. Prevents a
-                tenant_api_key holder from probing tokens for another site.
+            site_uuid: The site UUID supplied by the caller; the token must
+                belong to a user in this site or the call is rejected. Prevents
+                a tenant_api_key holder from probing tokens for another site.
 
         Returns:
             VerificationTokenStatus: Contains password_required and email
@@ -216,12 +217,12 @@ class AuthService:
         Raises:
             ValueError: If token is invalid, expired, or belongs to another site
         """
-        user_id = token_service.check_email_verification_token(token)
-        if not user_id:
+        user_uuid = token_service.check_email_verification_token(token)
+        if not user_uuid:
             raise ValueError("Invalid or expired verification token")
 
-        user = db_manager.find_user_by_id(user_id)
-        if not user or user.site_id != site_id:
+        user = db_manager.find_user_by_uuid(user_uuid)
+        if not user or user.site_uuid != site_uuid:
             # Returning the same error as "invalid token" prevents probing
             # whether a token exists for another site.
             raise ValueError("Invalid or expired verification token")
@@ -232,7 +233,7 @@ class AuthService:
         )
 
     def verify_email(
-        self, token: str, site_id: int, password: Optional[str] = None
+        self, token: str, site_uuid: str, password: Optional[str] = None
     ) -> VerificationResult:
         """
         Verify a user's email address using a verification token.
@@ -242,9 +243,9 @@ class AuthService:
 
         Args:
             token: The email verification token
-            site_id: The site_id supplied by the caller; the token must belong
-                to a user in this site or the call is rejected. Prevents a
-                tenant_api_key holder from consuming tokens for another site.
+            site_uuid: The site UUID supplied by the caller; the token must
+                belong to a user in this site or the call is rejected. Prevents
+                a tenant_api_key holder from consuming tokens for another site.
             password: Optional password to set (required for admin-created users)
 
         Returns:
@@ -255,13 +256,13 @@ class AuthService:
                 or password required but not provided
         """
         # First, check the token without consuming it
-        user_id = token_service.check_email_verification_token(token)
-        if not user_id:
+        user_uuid = token_service.check_email_verification_token(token)
+        if not user_uuid:
             raise ValueError("Invalid or expired verification token")
 
         # Get user to check if password is required
-        user = db_manager.find_user_by_id(user_id)
-        if not user or user.site_id != site_id:
+        user = db_manager.find_user_by_uuid(user_uuid)
+        if not user or user.site_uuid != site_uuid:
             raise ValueError("Invalid or expired verification token")
 
         # Check if password is required BEFORE consuming the token
@@ -277,7 +278,7 @@ class AuthService:
             user.password_hash = password_service.hash_password(password)
 
         # Get site info for redirect URL
-        site = db_manager.find_site_by_id(user.site_id)
+        site = db_manager.find_site_by_uuid(user.site_uuid)
         if not site:
             raise ValueError("Site not found")
 
@@ -289,8 +290,6 @@ class AuthService:
         # Fire webhook to notify tenant site (background thread, non-blocking)
         webhook_payload = WebhookPayload(
             event_type="user.verified",
-            site_id=site.id,
-            user_id=updated_user.id,
             site_uuid=site.uuid,
             user_uuid=updated_user.uuid,
             email=updated_user.email,
@@ -304,12 +303,12 @@ class AuthService:
             redirect_url=site.get_verification_redirect_url()
         )
 
-    def resend_verification_email(self, user_id: int) -> bool:
+    def resend_verification_email(self, user_uuid: str) -> bool:
         """
         Resend verification email with a new token.
 
         Args:
-            user_id: The user's ID
+            user_uuid: The user's UUID
 
         Returns:
             bool: True if email was sent successfully
@@ -317,19 +316,19 @@ class AuthService:
         Raises:
             ValueError: If user not found, already verified, or site not found
         """
-        user = db_manager.find_user_by_id(user_id)
+        user = db_manager.find_user_by_uuid(user_uuid)
         if not user:
             raise ValueError("User not found")
 
         if user.is_verified:
             raise ValueError("User is already verified")
 
-        site = db_manager.find_site_by_id(user.site_id)
+        site = db_manager.find_site_by_uuid(user.site_uuid)
         if not site:
             raise ValueError("Site not found")
 
         # Create new verification token
-        verification_token = token_service.create_email_verification_token(user.site_id, user.id)
+        verification_token = token_service.create_email_verification_token(user.site_uuid, user.uuid)
 
         # Send verification email
         return email_service.send_verification_email(
@@ -343,12 +342,12 @@ class AuthService:
             mailgun_api_key=site.mailgun_api_key,
         )
 
-    def change_password(self, user_id: int, old_password: str, new_password: str) -> User:
+    def change_password(self, user_uuid: str, old_password: str, new_password: str) -> User:
         """
         Change a user's password after verifying the old password.
 
         Args:
-            user_id: The user's ID
+            user_uuid: The user's UUID
             old_password: The user's current password
             new_password: The new password to set
 
@@ -358,7 +357,7 @@ class AuthService:
         Raises:
             ValueError: If old password is incorrect or user not found
         """
-        user = db_manager.find_user_by_id(user_id)
+        user = db_manager.find_user_by_uuid(user_uuid)
         if not user:
             raise ValueError("User not found")
 
@@ -374,31 +373,31 @@ class AuthService:
         updated_user = db_manager.update_user(user)
 
         # Invalidate all existing tokens for security
-        token_service.invalidate_user_tokens(user_id)
-        token_service.invalidate_user_refresh_tokens(user_id)
+        token_service.invalidate_user_tokens(user_uuid)
+        token_service.invalidate_user_refresh_tokens(user_uuid)
 
         return updated_user
 
-    def request_password_reset(self, site_id: int, email: str) -> Optional[str]:
+    def request_password_reset(self, site_uuid: str, email: str) -> Optional[str]:
         """
         Request a password reset token for a user.
 
         Args:
-            site_id: The ID of the site
+            site_uuid: The UUID of the site
             email: The user's email address
 
         Returns:
             Optional[str]: The reset token if user exists, None otherwise
         """
-        user = db_manager.find_user_by_email(site_id, email)
+        user = db_manager.find_user_by_email(site_uuid, email)
         if not user:
             # Don't reveal if email exists or not for security
             return None
 
-        reset_token = token_service.create_password_reset_token(site_id, user.id)
+        reset_token = token_service.create_password_reset_token(site_uuid, user.uuid)
 
         # Get site info for email
-        site = db_manager.find_site_by_id(site_id)
+        site = db_manager.find_site_by_uuid(site_uuid)
         if site:
             # Send password reset email (don't fail if email fails)
             try:
@@ -417,15 +416,15 @@ class AuthService:
 
         return reset_token.token
 
-    def reset_password(self, token: str, site_id: int, new_password: str) -> User:
+    def reset_password(self, token: str, site_uuid: str, new_password: str) -> User:
         """
         Reset a user's password using a password reset token.
 
         Args:
             token: The password reset token
-            site_id: The site_id supplied by the caller; the token must belong
-                to a user in this site or the call is rejected. Prevents a
-                tenant_api_key holder from consuming reset tokens for another site.
+            site_uuid: The site UUID supplied by the caller; the token must
+                belong to a user in this site or the call is rejected. Prevents
+                a tenant_api_key holder from consuming reset tokens for another site.
             new_password: The new password to set
 
         Returns:
@@ -435,12 +434,12 @@ class AuthService:
             ValueError: If token is invalid, expired, already used, or belongs
                 to another site
         """
-        user_id = token_service.validate_password_reset_token(token)
-        if not user_id:
+        user_uuid = token_service.validate_password_reset_token(token)
+        if not user_uuid:
             raise ValueError("Invalid or expired reset token")
 
-        user = db_manager.find_user_by_id(user_id)
-        if not user or user.site_id != site_id:
+        user = db_manager.find_user_by_uuid(user_uuid)
+        if not user or user.site_uuid != site_uuid:
             raise ValueError("Invalid or expired reset token")
 
         # Hash new password
@@ -451,17 +450,17 @@ class AuthService:
         updated_user = db_manager.update_user(user)
 
         # Invalidate all existing tokens for security
-        token_service.invalidate_user_tokens(user_id)
-        token_service.invalidate_user_refresh_tokens(user_id)
+        token_service.invalidate_user_tokens(user_uuid)
+        token_service.invalidate_user_refresh_tokens(user_uuid)
 
         return updated_user
 
-    def request_email_change(self, user_id: int, new_email: str) -> str:
+    def request_email_change(self, user_uuid: str, new_email: str) -> str:
         """
         Request an email change for a user.
 
         Args:
-            user_id: The user's ID
+            user_uuid: The user's UUID
             new_email: The new email address to verify
 
         Returns:
@@ -470,19 +469,19 @@ class AuthService:
         Raises:
             ValueError: If new email is already in use or user not found
         """
-        user = db_manager.find_user_by_id(user_id)
+        user = db_manager.find_user_by_uuid(user_uuid)
         if not user:
             raise ValueError("User not found")
 
         # Check if new email is already in use for this site
-        existing_user = db_manager.find_user_by_email(user.site_id, new_email)
+        existing_user = db_manager.find_user_by_email(user.site_uuid, new_email)
         if existing_user:
             raise ValueError("Email already in use")
 
-        change_request = token_service.create_email_change_token(user.site_id, user_id, new_email)
+        change_request = token_service.create_email_change_token(user.site_uuid, user.uuid, new_email)
 
         # Get site info for email
-        site = db_manager.find_site_by_id(user.site_id)
+        site = db_manager.find_site_by_uuid(user.site_uuid)
         if site:
             # Send email change confirmation (don't fail if email fails)
             try:
@@ -518,7 +517,7 @@ class AuthService:
         if not change_request:
             raise ValueError("Invalid or expired email change token")
 
-        user = db_manager.find_user_by_id(change_request.user_id)
+        user = db_manager.find_user_by_uuid(change_request.user_uuid)
         if not user:
             raise ValueError("User not found")
 
@@ -538,11 +537,11 @@ class AuthService:
         Returns:
             Optional[User]: The user if token is valid, None otherwise
         """
-        user_id = token_service.validate_auth_token(token)
-        if not user_id:
+        user_uuid = token_service.validate_auth_token(token)
+        if not user_uuid:
             return None
 
-        return db_manager.find_user_by_id(user_id)
+        return db_manager.find_user_by_uuid(user_uuid)
 
 
 # Global auth service instance

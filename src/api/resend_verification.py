@@ -18,7 +18,7 @@ def resend_verification(user_id: str):
     Requires master API key (X-API-Key header).
 
     Path parameters:
-        user_id: User identifier (integer id or UUID)
+        user_id: User UUID
 
     Returns:
         200: Verification email sent successfully
@@ -30,7 +30,7 @@ def resend_verification(user_id: str):
     if user is None:
         return jsonify({'error': 'User not found'}), 404
     try:
-        success = auth_service.resend_verification_email(user.id)
+        success = auth_service.resend_verification_email(user.uuid)
         if success:
             return jsonify({'message': 'Verification email sent successfully'}), 200
         else:

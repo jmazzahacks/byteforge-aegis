@@ -15,8 +15,8 @@ def test_me_success(test_client, user_auth_token, sample_user):
 
     assert response.status_code == 200
     data = response.get_json()
-    assert data['id'] == sample_user.id
-    assert data['site_id'] == sample_user.site_id
+    assert data['uuid'] == sample_user.uuid
+    assert data['site_uuid'] == sample_user.site_uuid
     assert data['email'] == sample_user.email
     assert data['is_verified'] == sample_user.is_verified
     assert data['role'] == sample_user.role.value
@@ -74,8 +74,8 @@ def test_me_expired_token(test_client, sample_site, sample_user):
     current_time = int(time.time())
     expired = AuthToken(
         token='expired_me_token',
-        site_id=sample_site.id,
-        user_id=sample_user.id,
+        site_uuid=sample_site.uuid,
+        user_uuid=sample_user.uuid,
         expires_at=current_time - 3600,
         created_at=current_time - 7200,
     )
@@ -100,5 +100,5 @@ def test_me_admin_user(test_client, admin_auth_token, admin_user):
 
     assert response.status_code == 200
     data = response.get_json()
-    assert data['id'] == admin_user.id
+    assert data['uuid'] == admin_user.uuid
     assert data['role'] == 'admin'
