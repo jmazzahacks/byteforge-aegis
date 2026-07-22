@@ -161,6 +161,18 @@ class TestVerifyEmailResponse:
 class TestAdminRoutesUuidOnly:
     """Master-key routes reject integer addressing with 404."""
 
+    def test_list_sites_returns_uuids(self, test_client, sample_site):
+        """Regression: list_sites carries inline SQL that must select uuid,
+        not the dropped int id (broke in prod as UndefinedColumn on v50)."""
+        from config import get_config
+        resp = test_client.get(
+            '/api/sites',
+            headers={'X-API-Key': get_config().MASTER_API_KEY},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert any(s['uuid'] == sample_site.uuid for s in data)
+
     def test_get_site_by_int_returns_404(self, test_client, sample_site):
         from config import get_config
         resp = test_client.get(

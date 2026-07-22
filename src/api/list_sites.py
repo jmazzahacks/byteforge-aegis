@@ -2,6 +2,7 @@
 List all sites endpoint.
 """
 from flask import Blueprint, jsonify
+from byteforge_aegis_models import Site
 from database import db_manager
 from schemas.site_schemas import SiteResponseSchema
 from utils.api_key_middleware import require_master_api_key
@@ -25,7 +26,7 @@ def list_sites():
     with db_manager.get_cursor() as cursor:
         cursor.execute(
             """
-            SELECT id, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key
+            SELECT uuid, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key
             FROM sites
             ORDER BY created_at DESC
             """
@@ -33,7 +34,6 @@ def list_sites():
         rows = cursor.fetchall()
 
     # Convert to Site objects and serialize
-    from byteforge_aegis_models import Site
     sites = [Site.from_dict(row) for row in rows]
     schema = SiteResponseSchema(many=True)
 
