@@ -6,6 +6,7 @@ from config import get_config
 from database import db_manager
 from byteforge_aegis_models import UserRole
 from models.user import User
+from services.webhook_service import webhook_service
 from utils.uuid7 import generate_uuid7
 
 
@@ -77,3 +78,47 @@ def test_delete_user_missing_api_key(test_client, sample_site, admin_user):
 
     assert response.status_code == 401
     assert db_manager.find_user_by_uuid(admin_user.uuid) is not None
+
+
+def test_delete_user_fires_user_deleted_webhook(test_client, sample_site, sample_user, admin_user, monkeypatch):
+    """A successful delete fires a user.deleted webhook to the user's site."""
+    sent = []
+
+    def capture_webhook(site, payload) -> None:
+        sent.append((site, payload))
+
+    monkeypatch.setattr(webhook_service, 'send_webhook', capture_webhook)
+
+    response = test_client.delete(
+        f'/api/admin/users/{sample_user.uuid}',
+        headers=_master_headers()
+    )
+
+    assert response.status_code == 200
+    assert len(sent) == 1
+    site, payload = sent[0]
+    assert site.uuid == sample_site.uuid
+    assert payload.event_type == 'user.deleted'
+    assert payload.site_uuid == sample_site.uuid
+    assert payload.user_uuid == sample_user.uuid
+    assert payload.email == sample_user.email
+    assert payload.aegis_role == 'user'
+    assert payload.timestamp > 0
+
+
+def test_blocked_delete_fires_no_webhook(test_client, sample_site, admin_user, monkeypatch):
+    """The 409 last-admin refusal must not emit a user.deleted event."""
+    sent = []
+
+    def capture_webhook(site, payload) -> None:
+        sent.append((site, payload))
+
+    monkeypatch.setattr(webhook_service, 'send_webhook', capture_webhook)
+
+    response = test_client.delete(
+        f'/api/admin/users/{admin_user.uuid}',
+        headers=_master_headers()
+    )
+
+    assert response.status_code == 409
+    assert sent == []

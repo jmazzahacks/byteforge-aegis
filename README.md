@@ -190,10 +190,13 @@ The response includes the new `tenant_api_key`. Tenant operators must update the
 When a site has a `webhook_url` configured, Aegis sends signed HTTP POST notifications for key events. Currently supported events:
 
 - **`user.verified`** - Fired when a user completes email verification
+- **`user.deleted`** - Fired when a user is deleted
 
-This allows tenant sites to initialize users in their own systems after verification.
+This allows tenant sites to initialize users in their own systems after verification, and clean up mirror records when a user is removed.
 
 #### Webhook Payload
+
+All events share the same envelope and body shape; `X-Aegis-Event` and `event_type` carry the event name.
 
 ```
 POST {webhook_url}
@@ -204,8 +207,8 @@ X-Aegis-Timestamp: 1708300000
 
 {
   "event_type": "user.verified",
-  "site_id": 1,
-  "user_id": 42,
+  "site_uuid": "0198c2f1-9ec5-7cf3-b8a2-3f6de1a4b7c9",
+  "user_uuid": "0198c2f2-1d84-7e11-a5c0-88f4c2f9d3ab",
   "email": "user@example.com",
   "aegis_role": "user",
   "timestamp": 1708300000

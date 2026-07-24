@@ -1,9 +1,12 @@
 """
 Delete user endpoint.
 """
+import time
+
 from flask import Blueprint, jsonify
-from byteforge_aegis_models import UserRole
+from byteforge_aegis_models import UserRole, WebhookPayload
 from database import db_manager
+from services.webhook_service import webhook_service
 from utils.api_key_middleware import require_master_api_key
 from utils.identifiers import resolve_user
 
@@ -38,6 +41,19 @@ def delete_user(user_id: str):
 
     deleted = db_manager.delete_user(user.uuid)
     if deleted:
+        # Notify the tenant site so it can clean up mirror rows keyed on
+        # this user's uuid (background thread, non-blocking).
+        site = db_manager.find_site_by_uuid(user.site_uuid)
+        if site:
+            webhook_payload = WebhookPayload(
+                event_type="user.deleted",
+                site_uuid=user.site_uuid,
+                user_uuid=user.uuid,
+                email=user.email,
+                aegis_role=user.role.value,
+                timestamp=int(time.time())
+            )
+            webhook_service.send_webhook(site, webhook_payload)
         return jsonify({'message': f'User {user.uuid} deleted successfully'}), 200
     else:
         return jsonify({'error': 'Failed to delete user'}), 500
