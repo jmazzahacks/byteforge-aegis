@@ -98,7 +98,7 @@ class WebhookService:
         headers = {
             'Content-Type': 'application/json',
             'X-Aegis-Signature': f"sha256={signature}",
-            'X-Aegis-Event': payload.event_type,
+            'X-Aegis-Event': payload.event_type.value,
             'X-Aegis-Timestamp': str(timestamp)
         }
 
@@ -123,7 +123,7 @@ class WebhookService:
         event = WebhookEvent(
             uuid=generate_uuid7(),
             site_uuid=site.uuid,
-            event_type=payload.event_type,
+            event_type=payload.event_type.value,
             payload=payload_json,
             response_status=response_status,
             response_body=response_body,

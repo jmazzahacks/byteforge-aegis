@@ -4,7 +4,7 @@ Delete user endpoint.
 import time
 
 from flask import Blueprint, jsonify
-from byteforge_aegis_models import UserRole, WebhookPayload
+from byteforge_aegis_models import UserRole, WebhookEventType, WebhookPayload
 from database import db_manager
 from services.webhook_service import webhook_service
 from utils.api_key_middleware import require_master_api_key
@@ -46,7 +46,7 @@ def delete_user(user_id: str):
         site = db_manager.find_site_by_uuid(user.site_uuid)
         if site:
             webhook_payload = WebhookPayload(
-                event_type="user.deleted",
+                event_type=WebhookEventType.USER_DELETED,
                 site_uuid=user.site_uuid,
                 user_uuid=user.uuid,
                 email=user.email,

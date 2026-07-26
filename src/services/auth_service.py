@@ -4,7 +4,7 @@ from typing import Optional
 from database import db_manager
 from byteforge_aegis_models import (
     AuthToken, LoginResult, UserRole, VerificationResult,
-    VerificationTokenStatus, WebhookPayload,
+    VerificationTokenStatus, WebhookEventType, WebhookPayload,
 )
 from models.user import User
 from services.password_service import password_service
@@ -289,7 +289,7 @@ class AuthService:
 
         # Fire webhook to notify tenant site (background thread, non-blocking)
         webhook_payload = WebhookPayload(
-            event_type="user.verified",
+            event_type=WebhookEventType.USER_VERIFIED,
             site_uuid=site.uuid,
             user_uuid=updated_user.uuid,
             email=updated_user.email,
