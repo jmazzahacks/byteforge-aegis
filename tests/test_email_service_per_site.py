@@ -88,7 +88,7 @@ def test_mismatched_from_address_warns(svc, fake_config, caplog):
     assert any('mismatch' in r.message.lower() for r in caplog.records)
 
 
-def test_send_email_uses_per_site_url(svc, fake_config):
+def test_send_email_uses_per_site_url(svc, fake_config, real_send_email):
     """Verify send_email POSTs to the per-site Mailgun domain URL."""
     fake_response = type('R', (), {'status_code': 200, 'json': lambda self: {}, 'text': ''})()
     with patch('services.email_service.requests.post', return_value=fake_response) as mock_post:
@@ -106,7 +106,7 @@ def test_send_email_uses_per_site_url(svc, fake_config):
     assert mock_post.call_args.kwargs['auth'] == ('api', 'tenant-key')
 
 
-def test_send_email_falls_back_to_global(svc, fake_config):
+def test_send_email_falls_back_to_global(svc, fake_config, real_send_email):
     """Site without per-site config still sends via the global creds."""
     fake_response = type('R', (), {'status_code': 200, 'json': lambda self: {}, 'text': ''})()
     with patch('services.email_service.requests.post', return_value=fake_response) as mock_post:
@@ -124,7 +124,7 @@ def test_send_email_falls_back_to_global(svc, fake_config):
     assert mock_post.call_args.kwargs['auth'] == ('api', 'global-api-key')
 
 
-def test_no_config_anywhere_returns_false(svc):
+def test_no_config_anywhere_returns_false(svc, real_send_email):
     """If neither per-site nor global Mailgun config exists, the send fails fast."""
     class _EmptyCfg:
         MAILGUN_DOMAIN = ''

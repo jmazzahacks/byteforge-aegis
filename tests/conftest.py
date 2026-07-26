@@ -2,9 +2,19 @@ import pytest
 import time
 import os
 import sys
+from typing import Optional
 
 # Set test database BEFORE importing any modules that use it
 os.environ['DB_NAME'] = 'aegis_test'
+
+# Blank the global Mailgun fallback BEFORE config loads. Test fixtures create
+# sites with no per-site Mailgun keys, so a configured fallback (e.g. a real
+# key in the local .env) silently routes every test email through a REAL
+# production Mailgun account — which happened on 2026-07-26 and looked like a
+# leaked API key. The autouse no_outbound_email fixture below is the primary
+# guard; this makes any unstubbed path fail closed instead of sending.
+os.environ['MAILGUN_API_KEY'] = ''
+os.environ['MAILGUN_DOMAIN'] = ''
 
 # Add src to path so we can import our modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -12,8 +22,49 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 from database import db_manager
 from byteforge_aegis_models import AuthToken, Site, UserRole
 from models.user import User
+from services import email_service as email_service_module
+from services.email_service import EmailService
 from utils.uuid7 import generate_uuid7
 from app import create_app
+
+
+@pytest.fixture(autouse=True)
+def no_outbound_email(monkeypatch):
+    """Tests must never send real email or reach the network.
+
+    Layer 1 stubs EmailService.send_email — every email flow (verification,
+    password reset, email change, registration attempt) funnels through it.
+    Layer 2 makes any requests.post that still slips through fail loudly
+    instead of silently hitting a live API; tests that need an HTTP call
+    stub requests.post themselves (see test_webhook_service.py).
+    """
+    def fake_send_email(self, to_email: str, subject: str, html_content: str,
+                        from_email: str, from_name: str,
+                        mailgun_domain: Optional[str] = None,
+                        mailgun_api_key: Optional[str] = None,
+                        text_content: Optional[str] = None) -> bool:
+        return True
+
+    def forbid_outbound_post(*args, **kwargs):
+        raise AssertionError(
+            "Test attempted an outbound HTTP POST — stub the service instead"
+        )
+
+    monkeypatch.setattr(EmailService, 'send_email', fake_send_email)
+    monkeypatch.setattr(email_service_module.requests, 'post', forbid_outbound_post)
+
+
+_real_send_email = EmailService.send_email
+
+
+@pytest.fixture
+def real_send_email(monkeypatch):
+    """Opt-out for tests that exercise EmailService.send_email internals.
+
+    Restores the real method; the outbound-POST guard stays active, so such
+    tests must still stub requests.post themselves.
+    """
+    monkeypatch.setattr(EmailService, 'send_email', _real_send_email)
 
 
 @pytest.fixture(scope='function')
