@@ -1,0 +1,29 @@
+# requirements.in — direct third-party dependencies only. Edit this, then
+# recompile the locked requirements.txt with:
+#
+#   uv pip compile requirements.in --override requirements-private.txt \
+#     --generate-hashes --python-version 3.13 -o requirements.full.txt
+#   grep -vE '^(byteforge-aegis-models|byteforge-loki-logging) @ git\+' \
+#     requirements.full.txt > requirements.txt && rm requirements.full.txt
+#
+# Pins and hashes for the full transitive tree live in requirements.txt.
+# uv keeps existing pins on recompile — versions only move with --upgrade
+# or --upgrade-package NAME.
+#
+# First-party libs (byteforge-aegis-models, byteforge-loki-logging) are
+# listed here so the compile locks their third-party sub-tree, but they are
+# stripped from the lock and installed at HEAD from requirements-private.txt
+# instead — they deliberately float to latest.
+
+Flask
+Flask-CORS
+psycopg2-binary
+bcrypt
+python-dotenv
+email-validator
+marshmallow
+requests
+gunicorn
+
+byteforge-aegis-models @ git+https://github.com/jmazzahacks/byteforge-aegis-models.git
+byteforge-loki-logging @ git+https://github.com/jmazzahacks/byteforge-loki-logging.git

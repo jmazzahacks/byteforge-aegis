@@ -98,6 +98,7 @@ def test_delete_user_fires_user_deleted_webhook(test_client, sample_site, sample
     assert len(sent) == 1
     site, payload = sent[0]
     assert site.uuid == sample_site.uuid
+    assert len(payload.event_id) == 36
     assert payload.event_type == 'user.deleted'
     assert payload.site_uuid == sample_site.uuid
     assert payload.user_uuid == sample_user.uuid

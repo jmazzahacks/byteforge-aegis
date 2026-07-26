@@ -1,5 +1,11 @@
 FROM python:3.13-slim
 
+# uv binary, pinned by immutable digest — not just the version tag. A tag can
+# be re-pushed to point at a different (malicious) binary; the digest cannot.
+# This binary installs everything else, so it is the root of trust for the
+# build. To upgrade uv, bump BOTH the tag and the digest.
+COPY --from=ghcr.io/astral-sh/uv:0.9.28@sha256:59240a65d6b57e6c507429b45f01b8f2c7c0bbeee0fb697c41a39c6a8e3a4cfb /uv /uvx /bin/
+
 WORKDIR /app
 
 # Install system dependencies
@@ -9,13 +15,24 @@ RUN apt-get update && apt-get install -y \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python dependencies
-# CR_PAT needed for private GitHub dependencies (byteforge-loki-logging)
-ARG CR_PAT
-ENV CR_PAT=${CR_PAT}
+COPY requirements.txt requirements-private.txt uv.toml ./
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Locked, hash-verified third-party dependencies. Every PyPI distribution is
+# checked against its SHA256 in requirements.txt; uv.toml's exclude-newer
+# gate also refuses anything published in the last 7 days. Git URLs in the
+# lock are token-free — no credential appears in any committed file.
+RUN uv pip install --system -r requirements.txt
+
+# First-party libs at latest commit (deliberately floating — see
+# requirements-private.txt). The CR_PAT secret is mounted only for this
+# step: it never enters a layer, the image env, or build history. --no-deps
+# because the sub-tree is locked above; --no-config so the exclude-newer
+# gate can't reject one of our own commits pushed within the window.
+RUN --mount=type=secret,id=cr_pat \
+    export CR_PAT=$(cat /run/secrets/cr_pat) && \
+    git config --global url."https://${CR_PAT}@github.com/".insteadOf "https://github.com/" && \
+    uv pip install --system --no-config --no-deps -r requirements-private.txt && \
+    git config --global --unset url."https://${CR_PAT}@github.com/".insteadOf
 
 # Copy application code
 COPY src/ ./src/

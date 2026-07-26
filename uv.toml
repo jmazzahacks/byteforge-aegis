@@ -1,0 +1,10 @@
+# Supply-chain defense: refuse any distribution published in the last 7 days
+# when resolving or installing, so a freshly-uploaded (possibly compromised)
+# release can't be pulled in before the community catches and yanks it.
+# Rolling window, evaluated at run time — applies to both `uv pip compile`
+# and the `uv pip install` inside the Docker build.
+#
+# The first-party HEAD install (requirements-private.txt) runs with
+# --no-config specifically so this gate doesn't reject our own commits
+# pushed within the window.
+exclude-newer = "7 days"

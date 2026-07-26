@@ -1,0 +1,11 @@
+# First-party libraries, deliberately unpinned — installed at the latest
+# commit on every build (with --no-deps --no-config; their third-party
+# sub-deps are locked in requirements.txt).
+#
+# URLs are token-free: auth is supplied at build time via a git insteadOf
+# rewrite from a BuildKit secret (see Dockerfile), never committed here.
+#
+# NOTE: docker layer caching will silently reuse an old commit — after
+# pushing a change to either lib, build with --no-cache.
+byteforge-aegis-models @ git+https://github.com/jmazzahacks/byteforge-aegis-models.git
+byteforge-loki-logging @ git+https://github.com/jmazzahacks/byteforge-loki-logging.git
