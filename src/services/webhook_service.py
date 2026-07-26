@@ -18,7 +18,6 @@ import requests
 
 from database import db_manager
 from byteforge_aegis_models import Site, WebhookEvent, WebhookPayload
-from utils.uuid7 import generate_uuid7
 
 logger = logging.getLogger(__name__)
 
@@ -128,8 +127,12 @@ class WebhookService:
             response_body = str(e)[:1000]
             logger.warning(f"Webhook delivery failed for site {site.uuid}: {e}")
 
+        # The log row shares the payload's event_id, so a tenant-reported
+        # event id is directly greppable in webhook_events. If retries are
+        # ever added, rows become per-attempt and event_id moves to its own
+        # column so this uuid can stay unique.
         event = WebhookEvent(
-            uuid=generate_uuid7(),
+            uuid=payload.event_id,
             site_uuid=site.uuid,
             event_type=payload.event_type.value,
             payload=payload_json,

@@ -2,6 +2,7 @@ import time
 from services.password_service import password_service
 from services.token_service import token_service
 from services.auth_service import auth_service
+from services.webhook_service import webhook_service
 from byteforge_aegis_models import UserRole
 
 
@@ -195,8 +196,15 @@ def test_login_unverified_email(sample_site):
         assert "not verified" in str(e).lower()
 
 
-def test_verify_email(sample_site):
+def test_verify_email(sample_site, monkeypatch):
     """Test email verification"""
+    sent = []
+
+    def capture_webhook(site, payload) -> None:
+        sent.append(payload)
+
+    monkeypatch.setattr(webhook_service, 'send_webhook', capture_webhook)
+
     user = auth_service.register_user(
         site_uuid=sample_site.uuid,
         email="verify@example.com",
@@ -219,6 +227,10 @@ def test_verify_email(sample_site):
     assert result.user.is_verified is True
     assert result.user.uuid == user.uuid
     assert result.redirect_url == sample_site.frontend_url
+
+    assert len(sent) == 1
+    assert sent[0].event_type == 'user.verified'
+    assert len(sent[0].event_id) == 36
 
 
 def test_change_password(sample_site):

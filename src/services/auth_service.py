@@ -289,6 +289,7 @@ class AuthService:
 
         # Fire webhook to notify tenant site (background thread, non-blocking)
         webhook_payload = WebhookPayload(
+            event_id=generate_uuid7(),
             event_type=WebhookEventType.USER_VERIFIED,
             site_uuid=site.uuid,
             user_uuid=updated_user.uuid,

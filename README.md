@@ -196,7 +196,7 @@ This allows tenant sites to initialize users in their own systems after verifica
 
 #### Webhook Payload
 
-All events share the same envelope and body shape; `X-Aegis-Event` and `event_type` carry the event name.
+All events share the same envelope and body shape; `X-Aegis-Event` and `event_type` carry the event name. `event_id` uniquely identifies the event — use it to deduplicate deliveries and to reference the event when reporting delivery problems (it matches the `webhook_events` log on the Aegis side).
 
 ```
 POST {webhook_url}
@@ -206,6 +206,7 @@ X-Aegis-Event: user.verified
 X-Aegis-Timestamp: 1708300000
 
 {
+  "event_id": "0198c2f3-4a20-7b06-9d15-2e8b7c1f0a44",
   "event_type": "user.verified",
   "site_uuid": "0198c2f1-9ec5-7cf3-b8a2-3f6de1a4b7c9",
   "user_uuid": "0198c2f2-1d84-7e11-a5c0-88f4c2f9d3ab",

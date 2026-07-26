@@ -9,6 +9,7 @@ from database import db_manager
 from services.webhook_service import webhook_service
 from utils.api_key_middleware import require_master_api_key
 from utils.identifiers import resolve_user
+from utils.uuid7 import generate_uuid7
 
 delete_user_bp = Blueprint('delete_user', __name__)
 
@@ -46,6 +47,7 @@ def delete_user(user_id: str):
         site = db_manager.find_site_by_uuid(user.site_uuid)
         if site:
             webhook_payload = WebhookPayload(
+                event_id=generate_uuid7(),
                 event_type=WebhookEventType.USER_DELETED,
                 site_uuid=user.site_uuid,
                 user_uuid=user.uuid,
