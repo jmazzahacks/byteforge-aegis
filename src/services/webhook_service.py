@@ -107,11 +107,19 @@ class WebhookService:
         success = False
 
         try:
+            # Redirects are refused: following one would re-send the signed
+            # payload to a destination chosen by the receiver, not the
+            # configured webhook_url. URL-level SSRF filtering is deliberately
+            # absent — tenant backends are reached over tailscale/private
+            # addresses, so internal IPs are legitimate destinations. If
+            # tenant self-service webhook config is ever added, delivery-time
+            # IP pinning must come with it.
             response = requests.post(
                 site.webhook_url,
                 data=payload_json,
                 headers=headers,
-                timeout=WEBHOOK_TIMEOUT_SECONDS
+                timeout=WEBHOOK_TIMEOUT_SECONDS,
+                allow_redirects=False
             )
             response_status = response.status_code
             response_body = response.text[:1000]
