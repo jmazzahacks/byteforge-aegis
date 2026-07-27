@@ -69,6 +69,7 @@ def create_app() -> Flask:
     from api.list_users import list_users_bp
     from api.resend_verification import resend_verification_bp
     from api.delete_user import delete_user_bp
+    from api.update_user import update_user_bp
     from api.admin_list_users import admin_list_users_bp
     from api.admin_register_user import admin_register_user_bp
     from api.me import me_bp
@@ -94,6 +95,7 @@ def create_app() -> Flask:
     app.register_blueprint(list_users_bp)
     app.register_blueprint(resend_verification_bp)
     app.register_blueprint(delete_user_bp)
+    app.register_blueprint(update_user_bp)
     app.register_blueprint(admin_list_users_bp)
     app.register_blueprint(admin_register_user_bp)
     app.register_blueprint(me_bp)

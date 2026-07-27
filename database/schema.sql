@@ -40,6 +40,10 @@ CREATE TABLE IF NOT EXISTS users (
     role user_role DEFAULT 'user',
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL,
+    -- When true, admin deletion of this user is refused. For accounts whose
+    -- downstream records hold real value that would become unattributable
+    -- if the Aegis identity disappeared.
+    deletion_protected BOOLEAN NOT NULL DEFAULT FALSE,
     UNIQUE(site_uuid, email)
 );
 

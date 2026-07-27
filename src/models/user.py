@@ -30,4 +30,5 @@ class User(BaseUser):
             role=UserRole(data['role']),
             created_at=data['created_at'],
             updated_at=data['updated_at'],
+            deletion_protected=data.get('deletion_protected', False),
         )

@@ -25,12 +25,26 @@ def delete_site(site_id: str):
         200: Site deleted successfully
         401: Missing or invalid API key
         404: Site not found
+        409: Site has deletion-protected users
         500: Deletion failed
     """
     # Check if site exists first
     site = resolve_site(site_id)
     if not site:
         return jsonify({'error': 'Site not found'}), 404
+
+    # Deleting a site cascades away its users, which would silently defeat
+    # per-user deletion protection. Refuse and make the operator clear those
+    # flags first — the same deliberate two-step as deleting a protected user.
+    protected_count = db_manager.count_protected_users(site.uuid)
+    if protected_count > 0:
+        return jsonify({
+            'error': (
+                f'Site has {protected_count} deletion-protected user(s); '
+                'clear their protection before deleting the site'
+            ),
+            'code': 'site_has_protected_users'
+        }), 409
 
     deleted = db_manager.delete_site(site.uuid)
     if deleted:

@@ -75,6 +75,11 @@ class ConfirmEmailChangeSchema(Schema):
     token = fields.String(required=True)
 
 
+class UpdateUserRequestSchema(Schema):
+    """Schema for the master-key admin user update (deletion protection)."""
+    deletion_protected = fields.Boolean(required=True)
+
+
 class UserResponseSchema(Schema):
     """Schema for user response (no sensitive data)"""
     uuid = fields.String()
@@ -84,6 +89,7 @@ class UserResponseSchema(Schema):
     role = fields.Method("get_role")
     created_at = fields.Integer()
     updated_at = fields.Integer()
+    deletion_protected = fields.Boolean()
 
     def get_role(self, obj):
         """Extract role value from UserRole enum"""

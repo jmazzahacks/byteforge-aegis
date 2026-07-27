@@ -356,10 +356,10 @@ class DatabaseManager:
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO users (uuid, site_uuid, email, password_hash, is_verified, role, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO users (uuid, site_uuid, email, password_hash, is_verified, role, created_at, updated_at, deletion_protected)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (user.uuid, user.site_uuid, user.email, user.password_hash, user.is_verified, user.role.value, user.created_at, user.updated_at)
+                (user.uuid, user.site_uuid, user.email, user.password_hash, user.is_verified, user.role.value, user.created_at, user.updated_at, user.deletion_protected)
             )
         return user
 
@@ -377,7 +377,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT uuid, site_uuid, email, password_hash, is_verified, role, created_at, updated_at FROM users WHERE uuid = %s",
+                "SELECT uuid, site_uuid, email, password_hash, is_verified, role, created_at, updated_at, deletion_protected FROM users WHERE uuid = %s",
                 (user_uuid,)
             )
             row = cursor.fetchone()
@@ -398,7 +398,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT uuid, site_uuid, email, password_hash, is_verified, role, created_at, updated_at FROM users WHERE site_uuid = %s AND email = %s",
+                "SELECT uuid, site_uuid, email, password_hash, is_verified, role, created_at, updated_at, deletion_protected FROM users WHERE site_uuid = %s AND email = %s",
                 (site_uuid, email)
             )
             row = cursor.fetchone()
@@ -416,7 +416,7 @@ class DatabaseManager:
         """
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT uuid, site_uuid, email, password_hash, is_verified, role, created_at, updated_at FROM users WHERE site_uuid = %s ORDER BY created_at, uuid",
+                "SELECT uuid, site_uuid, email, password_hash, is_verified, role, created_at, updated_at, deletion_protected FROM users WHERE site_uuid = %s ORDER BY created_at, uuid",
                 (site_uuid,)
             )
             rows = cursor.fetchall()
@@ -443,6 +443,27 @@ class DatabaseManager:
             row = cursor.fetchone()
             return row['count'] if row else 0
 
+    def count_protected_users(self, site_uuid: str) -> int:
+        """
+        Count deletion-protected users on a site.
+
+        Used to refuse site deletion, which would otherwise cascade away
+        protected users and silently defeat the per-user guard.
+
+        Args:
+            site_uuid: The UUID of the site
+
+        Returns:
+            Number of users on the site with deletion_protected set
+        """
+        with self.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*) AS count FROM users WHERE site_uuid = %s AND deletion_protected = TRUE",
+                (site_uuid,)
+            )
+            row = cursor.fetchone()
+            return row['count'] if row else 0
+
     def update_user(self, user: 'User') -> 'User':
         """
         Update an existing user in the database.
@@ -457,10 +478,12 @@ class DatabaseManager:
             cursor.execute(
                 """
                 UPDATE users
-                SET email = %s, password_hash = %s, is_verified = %s, role = %s, updated_at = %s
+                SET email = %s, password_hash = %s, is_verified = %s, role = %s,
+                    deletion_protected = %s, updated_at = %s
                 WHERE uuid = %s
                 """,
-                (user.email, user.password_hash, user.is_verified, user.role.value, user.updated_at, user.uuid)
+                (user.email, user.password_hash, user.is_verified, user.role.value,
+                 user.deletion_protected, user.updated_at, user.uuid)
             )
         return user
 
@@ -482,8 +505,13 @@ class DatabaseManager:
             cursor.execute("DELETE FROM password_reset_tokens WHERE user_uuid = %s", (user_uuid,))
             cursor.execute("DELETE FROM email_change_requests WHERE user_uuid = %s", (user_uuid,))
 
-            # Delete the user
-            cursor.execute("DELETE FROM users WHERE uuid = %s", (user_uuid,))
+            # Delete the user. The deletion_protected predicate is belt-and-
+            # suspenders against a PATCH that sets protection concurrently
+            # with an in-flight delete — the route checks it too.
+            cursor.execute(
+                "DELETE FROM users WHERE uuid = %s AND deletion_protected = FALSE",
+                (user_uuid,)
+            )
             return cursor.rowcount > 0
 
     # AuthToken operations

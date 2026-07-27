@@ -185,6 +185,38 @@ curl -X PUT http://localhost:5678/api/sites/{site_id} \
 
 The response includes the new `tenant_api_key`. Tenant operators must update their `AEGIS_TENANT_API_KEY` env var and redeploy — until they do, all public auth calls return 401.
 
+### User Management
+
+#### Deletion Protection
+
+Deleting a user is irreversible, and Aegis has no knowledge of what that identity anchors downstream. A tenant may key financial records, custody data, or other non-recoverable value on `user_uuid` — once the Aegis user is gone, there is no way to establish who those records belong to. Deletion protection lets an operator mark such accounts so the delete path refuses.
+
+```bash
+# Protect a user from deletion
+curl -X PATCH http://localhost:5678/api/admin/users/{user_uuid} \
+  -H "X-API-Key: your-master-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"deletion_protected": true}'
+```
+
+The flag defaults to `false` for every user and appears on user responses, so tenants can tell a protected account from an unprotected one.
+
+While set, `DELETE /api/admin/users/{user_uuid}` returns **409** with a machine-readable code, and no `user.deleted` webhook fires (a refused delete is not a deletion):
+
+```json
+{"error": "User is protected from deletion", "code": "user_deletion_protected"}
+```
+
+The other 409 on that endpoint — refusing to delete a site's last admin — carries `"code": "last_site_admin"`, so callers can distinguish the two refusals.
+
+Site deletion respects the flag too. Deleting a site cascades to all of its users, so `DELETE /api/sites/{site_uuid}` refuses while any of them are protected:
+
+```json
+{"error": "Site has 2 deletion-protected user(s); clear their protection before deleting the site", "code": "site_has_protected_users"}
+```
+
+To delete a protected user, clear the flag first (`{"deletion_protected": false}`) and then delete. This is deliberate: the protection defends against an accidental click, not against a determined operator, who holds the master key and can do anything regardless. Making it two separate, individually-audited actions is the guarantee.
+
 ### Webhooks
 
 When a site has a `webhook_url` configured, Aegis sends signed HTTP POST notifications for key events. Currently supported events:

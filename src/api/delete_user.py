@@ -29,16 +29,29 @@ def delete_user(user_id: str):
         200: User deleted successfully
         401: Missing or invalid API key
         404: User not found
-        409: User is the last admin of their site
+        409: Deletion refused — user is deletion-protected, or is the last
+             admin of their site. The 'code' field distinguishes them.
     """
     # Check if user exists first
     user = resolve_user(user_id)
     if not user:
         return jsonify({'error': 'User not found'}), 404
 
+    # Deletion protection is checked first: it is an explicit operator
+    # decision about this specific account, so it should be the reported
+    # reason even when another guard would also refuse.
+    if user.deletion_protected:
+        return jsonify({
+            'error': 'User is protected from deletion',
+            'code': 'user_deletion_protected'
+        }), 409
+
     # Refuse to orphan a site's admin access: never delete its last admin.
     if user.role == UserRole.ADMIN and db_manager.count_site_admins(user.site_uuid) <= 1:
-        return jsonify({'error': 'Cannot delete the last admin of a site'}), 409
+        return jsonify({
+            'error': 'Cannot delete the last admin of a site',
+            'code': 'last_site_admin'
+        }), 409
 
     deleted = db_manager.delete_user(user.uuid)
     if deleted:
