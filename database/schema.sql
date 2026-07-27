@@ -25,7 +25,12 @@ CREATE TABLE IF NOT EXISTS sites (
     webhook_secret VARCHAR(255),
     tenant_api_key VARCHAR(64) NOT NULL,
     mailgun_domain VARCHAR(255),
-    mailgun_api_key VARCHAR(255)
+    mailgun_api_key VARCHAR(255),
+    -- When true, no user on this site may be deleted and the site itself may
+    -- not be deleted. For tenants where every account anchors records whose
+    -- loss is unrecoverable (custody, financial), so the guarantee does not
+    -- depend on remembering to mark each user individually.
+    deletion_protected BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE INDEX idx_sites_domain ON sites(domain);

@@ -25,13 +25,23 @@ def delete_site(site_id: str):
         200: Site deleted successfully
         401: Missing or invalid API key
         404: Site not found
-        409: Site has deletion-protected users
+        409: Site is protected from deletion, or has deletion-protected
+             users. The 'code' field distinguishes them.
         500: Deletion failed
     """
     # Check if site exists first
     site = resolve_site(site_id)
     if not site:
         return jsonify({'error': 'Site not found'}), 404
+
+    # A site marked protected is not deletable at all — that is the whole
+    # point of the flag for tenants whose every account anchors unrecoverable
+    # records.
+    if site.deletion_protected:
+        return jsonify({
+            'error': 'This site is protected from deletion',
+            'code': 'site_deletion_protected'
+        }), 409
 
     # Deleting a site cascades away its users, which would silently defeat
     # per-user deletion protection. Refuse and make the operator clear those

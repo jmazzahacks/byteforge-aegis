@@ -26,7 +26,7 @@ def list_sites():
     with db_manager.get_cursor() as cursor:
         cursor.execute(
             """
-            SELECT uuid, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key
+            SELECT uuid, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key, deletion_protected
             FROM sites
             ORDER BY created_at DESC
             """

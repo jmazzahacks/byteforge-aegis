@@ -4,6 +4,7 @@ Marshmallow schemas for authentication API requests and responses.
 from marshmallow import Schema, fields, validate
 
 from schemas.identifier_fields import SiteIdentifierField
+from schemas.strict_fields import StrictBoolean
 
 
 class RegisterRequestSchema(Schema):
@@ -77,7 +78,9 @@ class ConfirmEmailChangeSchema(Schema):
 
 class UpdateUserRequestSchema(Schema):
     """Schema for the master-key admin user update (deletion protection)."""
-    deletion_protected = fields.Boolean(required=True)
+    # StrictBoolean, not fields.Boolean: the default coerces "false"/"0"/"off"
+    # and numeric 0, any of which would silently clear protection.
+    deletion_protected = StrictBoolean(required=True)
 
 
 class UserResponseSchema(Schema):

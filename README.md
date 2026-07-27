@@ -189,6 +189,21 @@ The response includes the new `tenant_api_key`. Tenant operators must update the
 
 #### Deletion Protection
 
+Two levels, both defaulting to off:
+
+**Site-level (tenant-wide).** For a tenant where every account anchors unrecoverable records (custody, financial), protection should not depend on remembering to mark each user. Mark the site once and every one of its users — existing and future — becomes undeletable:
+
+```bash
+curl -X PUT http://localhost:5678/api/sites/{site_uuid} \
+  -H "X-API-Key: your-master-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"deletion_protected": true}'
+```
+
+While set, deleting any user of that site returns **409** with `"code": "site_deletion_protected"`, and `DELETE /api/sites/{site_uuid}` refuses with the same code. No `user.deleted` webhook fires on a refusal.
+
+**Per-user.** The finer-grained tool, for a tenant that only needs a couple of specific accounts protected.
+
 Deleting a user is irreversible, and Aegis has no knowledge of what that identity anchors downstream. A tenant may key financial records, custody data, or other non-recoverable value on `user_uuid` — once the Aegis user is gone, there is no way to establish who those records belong to. Deletion protection lets an operator mark such accounts so the delete path refuses.
 
 ```bash

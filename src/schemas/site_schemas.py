@@ -3,6 +3,8 @@ Marshmallow schemas for site API requests and responses.
 """
 from marshmallow import Schema, fields, validate
 
+from schemas.strict_fields import StrictBoolean
+
 
 class CreateSiteRequestSchema(Schema):
     """Schema for creating a new site"""
@@ -32,6 +34,9 @@ class UpdateSiteRequestSchema(Schema):
     regenerate_tenant_api_key = fields.Boolean(required=False)
     mailgun_domain = fields.String(required=False, allow_none=True, validate=validate.Length(max=255))
     mailgun_api_key = fields.String(required=False, allow_none=True, validate=validate.Length(max=255))
+    # StrictBoolean, not fields.Boolean: the default coerces "false"/"0"/"off"
+    # and numeric 0, any of which would silently clear tenant-wide protection.
+    deletion_protected = StrictBoolean(required=False)
 
 
 class SiteResponseSchema(Schema):
@@ -51,6 +56,7 @@ class SiteResponseSchema(Schema):
     tenant_api_key = fields.String(allow_none=True)
     mailgun_domain = fields.String(allow_none=True)
     mailgun_api_key = fields.String(allow_none=True)
+    deletion_protected = fields.Boolean()
 
 
 class PublicSiteResponseSchema(Schema):

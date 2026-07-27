@@ -38,8 +38,21 @@ def delete_user(user_id: str):
         return jsonify({'error': 'User not found'}), 404
 
     # Deletion protection is checked first: it is an explicit operator
-    # decision about this specific account, so it should be the reported
-    # reason even when another guard would also refuse.
+    # decision about this account (or its whole tenant), so it should be the
+    # reported reason even when another guard would also refuse.
+    # Fail closed: users.site_uuid is NOT NULL REFERENCES sites(uuid), so a
+    # missing site means the DB is in a state we don't understand — refuse
+    # rather than fall through to the delete.
+    site = db_manager.find_site_by_uuid(user.site_uuid)
+    if not site:
+        return jsonify({'error': 'Site for this user could not be resolved'}), 500
+
+    if site.deletion_protected:
+        return jsonify({
+            'error': 'This site is protected from deletion; none of its users can be deleted',
+            'code': 'site_deletion_protected'
+        }), 409
+
     if user.deletion_protected:
         return jsonify({
             'error': 'User is protected from deletion',
@@ -56,19 +69,18 @@ def delete_user(user_id: str):
     deleted = db_manager.delete_user(user.uuid)
     if deleted:
         # Notify the tenant site so it can clean up mirror rows keyed on
-        # this user's uuid (background thread, non-blocking).
-        site = db_manager.find_site_by_uuid(user.site_uuid)
-        if site:
-            webhook_payload = WebhookPayload(
-                event_id=generate_uuid7(),
-                event_type=WebhookEventType.USER_DELETED,
-                site_uuid=user.site_uuid,
-                user_uuid=user.uuid,
-                email=user.email,
-                aegis_role=user.role.value,
-                timestamp=int(time.time())
-            )
-            webhook_service.send_webhook(site, webhook_payload)
+        # this user's uuid (background thread, non-blocking). `site` was
+        # already resolved above for the protection guard.
+        webhook_payload = WebhookPayload(
+            event_id=generate_uuid7(),
+            event_type=WebhookEventType.USER_DELETED,
+            site_uuid=user.site_uuid,
+            user_uuid=user.uuid,
+            email=user.email,
+            aegis_role=user.role.value,
+            timestamp=int(time.time())
+        )
+        webhook_service.send_webhook(site, webhook_payload)
         return jsonify({'message': f'User {user.uuid} deleted successfully'}), 200
     else:
         return jsonify({'error': 'Failed to delete user'}), 500

@@ -251,10 +251,10 @@ class DatabaseManager:
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO sites (uuid, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO sites (uuid, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key, deletion_protected)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (site.uuid, site.name, site.domain, site.frontend_url, site.verification_redirect_url, site.email_from, site.email_from_name, site.created_at, site.updated_at, site.allow_self_registration, site.webhook_url, site.webhook_secret, site.tenant_api_key, site.mailgun_domain, site.mailgun_api_key)
+                (site.uuid, site.name, site.domain, site.frontend_url, site.verification_redirect_url, site.email_from, site.email_from_name, site.created_at, site.updated_at, site.allow_self_registration, site.webhook_url, site.webhook_secret, site.tenant_api_key, site.mailgun_domain, site.mailgun_api_key, site.deletion_protected)
             )
         return site
 
@@ -272,7 +272,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT uuid, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key FROM sites WHERE uuid = %s",
+                "SELECT uuid, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key, deletion_protected FROM sites WHERE uuid = %s",
                 (site_uuid,)
             )
             row = cursor.fetchone()
@@ -292,7 +292,7 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT uuid, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key FROM sites WHERE domain = %s",
+                "SELECT uuid, name, domain, frontend_url, verification_redirect_url, email_from, email_from_name, created_at, updated_at, allow_self_registration, webhook_url, webhook_secret, tenant_api_key, mailgun_domain, mailgun_api_key, deletion_protected FROM sites WHERE domain = %s",
                 (domain,)
             )
             row = cursor.fetchone()
@@ -312,10 +312,10 @@ class DatabaseManager:
             cursor.execute(
                 """
                 UPDATE sites
-                SET name = %s, domain = %s, frontend_url = %s, verification_redirect_url = %s, email_from = %s, email_from_name = %s, updated_at = %s, allow_self_registration = %s, webhook_url = %s, webhook_secret = %s, tenant_api_key = %s, mailgun_domain = %s, mailgun_api_key = %s
+                SET name = %s, domain = %s, frontend_url = %s, verification_redirect_url = %s, email_from = %s, email_from_name = %s, updated_at = %s, allow_self_registration = %s, webhook_url = %s, webhook_secret = %s, tenant_api_key = %s, mailgun_domain = %s, mailgun_api_key = %s, deletion_protected = %s
                 WHERE uuid = %s
                 """,
-                (site.name, site.domain, site.frontend_url, site.verification_redirect_url, site.email_from, site.email_from_name, site.updated_at, site.allow_self_registration, site.webhook_url, site.webhook_secret, site.tenant_api_key, site.mailgun_domain, site.mailgun_api_key, site.uuid)
+                (site.name, site.domain, site.frontend_url, site.verification_redirect_url, site.email_from, site.email_from_name, site.updated_at, site.allow_self_registration, site.webhook_url, site.webhook_secret, site.tenant_api_key, site.mailgun_domain, site.mailgun_api_key, site.deletion_protected, site.uuid)
             )
         return site
 
@@ -335,7 +335,22 @@ class DatabaseManager:
             bool: True if a site was deleted, False if the site was not found
         """
         with self.get_cursor(commit=True) as cursor:
-            cursor.execute("DELETE FROM sites WHERE uuid = %s", (site_uuid,))
+            # Both protection guards live here as well as in the route, so a
+            # protection set concurrently with an in-flight delete wins and a
+            # future caller reaching this method directly can't cascade away
+            # protected users. Mirrors the predicate on delete_user.
+            cursor.execute(
+                """
+                DELETE FROM sites s
+                WHERE s.uuid = %s
+                  AND s.deletion_protected = FALSE
+                  AND NOT EXISTS (
+                      SELECT 1 FROM users u
+                      WHERE u.site_uuid = s.uuid AND u.deletion_protected = TRUE
+                  )
+                """,
+                (site_uuid,)
+            )
             return cursor.rowcount > 0
 
     # User operations
@@ -505,11 +520,19 @@ class DatabaseManager:
             cursor.execute("DELETE FROM password_reset_tokens WHERE user_uuid = %s", (user_uuid,))
             cursor.execute("DELETE FROM email_change_requests WHERE user_uuid = %s", (user_uuid,))
 
-            # Delete the user. The deletion_protected predicate is belt-and-
-            # suspenders against a PATCH that sets protection concurrently
-            # with an in-flight delete — the route checks it too.
+            # Delete the user. Both protection predicates live here as well as
+            # in the route: belt-and-suspenders against protection set
+            # concurrently with an in-flight delete, and against any future
+            # caller that reaches this method without the route's guards.
             cursor.execute(
-                "DELETE FROM users WHERE uuid = %s AND deletion_protected = FALSE",
+                """
+                DELETE FROM users u
+                USING sites s
+                WHERE u.uuid = %s
+                  AND u.site_uuid = s.uuid
+                  AND u.deletion_protected = FALSE
+                  AND s.deletion_protected = FALSE
+                """,
                 (user_uuid,)
             )
             return cursor.rowcount > 0
