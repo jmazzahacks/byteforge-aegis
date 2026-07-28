@@ -1,11 +1,23 @@
 import logging
 import os
+import re
+import time
 
-from flask import Flask
+from flask import Flask, g, request
 from flask_cors import CORS
 from byteforge_loki_logging import configure_logging
 
 from config import get_config
+
+# Requests at or above this take a WARNING rather than INFO, so slow queries
+# surface without having to grep every access line.
+SLOW_REQUEST_MS = 1000
+
+# Guards on the fallback route label for unmatched requests: control
+# characters are what allow a forged log line, and the length cap stops a
+# single request filling the log.
+_UNSAFE_LOG_CHARS = re.compile(r'[\x00-\x1f\x7f]')
+MAX_LOGGED_PATH_CHARS = 200
 
 
 def create_app() -> Flask:
@@ -109,7 +121,59 @@ def create_app() -> Flask:
         logger.info('Health check', extra={'route': '/api/health'})
         return {'status': 'healthy', 'service': 'auth-service'}, 200
 
+    # Access logging. Until this existed we logged nothing but health checks,
+    # so a latency question about our own service could only be answered by
+    # reading the gunicorn config (hivemake ticket cc296d7c, 2026-07-28).
+    #
+    # NOTE ON WHAT THIS DOES NOT MEASURE: duration is handler time only. Under
+    # gthread the connection is accepted and parsed before being handed to the
+    # thread pool, so time spent waiting for a free thread elapses before the
+    # WSGI callable runs and is invisible here. Diagnosing queueing needs the
+    # reverse proxy to stamp request-start and log the delta.
+    @app.before_request
+    def _start_request_timer() -> None:
+        g.request_started_at = time.perf_counter()
+
+    @app.after_request
+    def _log_request(response):
+        started_at = g.pop('request_started_at', None)
+        if started_at is None or request.path == '/api/health':
+            return response
+
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 1)
+        level = logging.WARNING if duration_ms >= SLOW_REQUEST_MS else logging.INFO
+        logger.log(
+            level,
+            '%s %s %s %sms',
+            request.method, _log_safe_route(), response.status_code, duration_ms,
+            extra={
+                'route': _log_safe_route(),
+                'method': request.method,
+                'status': response.status_code,
+                'duration_ms': duration_ms,
+            },
+        )
+        return response
+
     return app
+
+
+def _log_safe_route() -> str:
+    """A route label safe to put in a log line.
+
+    Prefers the matched rule (`/api/sites/<site_id>/users`), which is a fixed
+    template: not attacker-controlled, and it keeps user and site UUIDs out of
+    the logs. Unmatched requests (404s, which need no authentication) have no
+    rule, so their raw path is sanitized instead — it is percent-decoded by
+    the server, so it can carry newlines, and an attacker could otherwise
+    inject entire well-formed log entries (a fabricated successful login, say)
+    into the stdout log, whose formatter does no escaping.
+    """
+    if request.url_rule is not None:
+        return str(request.url_rule)
+
+    path = request.path[:MAX_LOGGED_PATH_CHARS]
+    return _UNSAFE_LOG_CHARS.sub('?', path)
 
 
 if __name__ == '__main__':

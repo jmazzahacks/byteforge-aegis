@@ -10,8 +10,8 @@ import hmac
 import json
 import logging
 import secrets
-import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 import requests
@@ -22,6 +22,20 @@ from byteforge_aegis_models import Site, WebhookEvent, WebhookPayload
 logger = logging.getLogger(__name__)
 
 WEBHOOK_TIMEOUT_SECONDS = 5
+
+# Delivery runs off the request thread, but bounded. Each delivery ends by
+# writing a WebhookEvent row, so it draws from the SAME per-worker DB pool as
+# request threads — an unbounded thread per event (a bulk delete, a
+# registration burst) could take every spare connection and make requests for
+# other tenants fail. Sized so request threads + this stay within the pool:
+# gunicorn --threads 3 + 2 here <= DatabaseManager max_conn. Raising either
+# means raising the pool, against a Postgres shared with other services.
+WEBHOOK_DELIVERY_WORKERS = 2
+
+_DELIVERY_POOL = ThreadPoolExecutor(
+    max_workers=WEBHOOK_DELIVERY_WORKERS,
+    thread_name_prefix='webhook-delivery',
+)
 
 
 class WebhookService:
@@ -72,12 +86,7 @@ class WebhookService:
         if not site.webhook_url or not site.webhook_secret:
             return
 
-        thread = threading.Thread(
-            target=self._deliver_webhook,
-            args=(site, payload),
-            daemon=True
-        )
-        thread.start()
+        _DELIVERY_POOL.submit(self._deliver_webhook, site, payload)
 
     def _deliver_webhook(self, site: Site, payload: WebhookPayload) -> Optional[WebhookEvent]:
         """

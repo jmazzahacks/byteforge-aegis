@@ -57,4 +57,33 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5678/api/health')" || exit 1
 
 # Run with gunicorn for production (using application factory pattern)
-CMD ["gunicorn", "--bind", "0.0.0.0:5678", "--workers", "4", "--timeout", "60", "--max-requests", "1000", "--max-requests-jitter", "50", "--chdir", "src", "app:create_app()"]
+#
+# Concurrency: 4 workers x 3 threads = 12 concurrent requests. Without
+# --threads gunicorn uses sync workers, one request each, so this served only
+# 4 at a time across all tenants — a caller firing 5-6 parallel requests per
+# page load queued behind that ceiling and saw timeouts, with nothing in our
+# logs to show it (hivemake ticket cc296d7c). The work here is DB-I/O-bound,
+# so threads suit it better than more processes; the workers stay at 4 because
+# login runs bcrypt, and processes are what give that real parallelism.
+#
+# CONNECTION BUDGET — Postgres is SHARED with other services on the host, so
+# this ceiling is not ours alone to spend. The per-worker pool must cover
+# every thread that can hold a connection, which is NOT just the request
+# threads:
+#
+#   --threads 3  (request threads, one connection each at most)
+# + 2            (webhook delivery pool, WEBHOOK_DELIVERY_WORKERS — each
+#                 delivery ends by writing a webhook_events row)
+# = 5            = DatabaseManager max_conn
+#
+# Ceiling is 4 workers x 5 = 20. min_conn is 3 rather than 1 so connections
+# are reused: psycopg2 CLOSES any connection returned beyond min_conn, so a
+# low floor turns concurrency into a fresh TCP+auth handshake per request —
+# which would undo the latency this threading was added for. So ~12 stay
+# resident. Admin scripts and migrations open their own on top, transiently.
+#
+# Raising --threads or the webhook workers REQUIRES raising max_conn with
+# them, and it all comes out of a budget shared with everything else on that
+# Postgres. Note --timeout is a worker heartbeat under gthread, not a request
+# cap; the statement_timeout in database.py is what bounds a stuck query.
+CMD ["gunicorn", "--bind", "0.0.0.0:5678", "--workers", "4", "--threads", "3", "--timeout", "60", "--max-requests", "1000", "--max-requests-jitter", "50", "--chdir", "src", "app:create_app()"]

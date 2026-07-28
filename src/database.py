@@ -1,4 +1,6 @@
 import logging
+import threading
+
 import psycopg2
 from psycopg2 import pool
 from psycopg2.extensions import connection
@@ -32,18 +34,41 @@ class DatabaseManager:
     than recycles) connections whose socket is actually dead.
     """
 
-    def __init__(self, min_conn: int = 1, max_conn: int = 10):
+    # max_conn is a per-WORKER ceiling, so the real cost is max_conn x
+    # gunicorn --workers, against a Postgres shared with other services. It
+    # must be >= gunicorn --threads PLUS the webhook delivery workers (each
+    # holds at most one connection), which is why they are documented in the
+    # Dockerfile: raising threads without raising this exhausts the pool and
+    # raising this without checking the shared budget starves everything else.
+    def __init__(self, min_conn: int = 3, max_conn: int = 5):
         self.config = get_config()
         self.connection_pool = None
         self.min_conn = min_conn
         self.max_conn = max_conn
         self._pool_initialized = False
+        self._init_lock = threading.Lock()
 
         # Try to initialize, but don't fail if database isn't available yet
         self._try_initialize_pool()
 
     def _try_initialize_pool(self) -> bool:
-        """Try to initialize the connection pool. Returns True if successful."""
+        """Try to initialize the connection pool. Returns True if successful.
+
+        Locked and double-checked: this is the lazy path taken when Postgres
+        was down at boot, and it is now reachable from several request threads
+        at once. Unsynchronized, two threads would each build a pool — one
+        orphaned with its sockets leaked — and a thread whose attempt failed
+        would null out the pool another thread had just built, leaving the
+        winner calling getconn() on None.
+        """
+        if self._pool_initialized:
+            return True
+
+        with self._init_lock:
+            return self._initialize_pool_locked()
+
+    def _initialize_pool_locked(self) -> bool:
+        """Build the pool. Caller must hold _init_lock."""
         if self._pool_initialized:
             return True
 
@@ -57,6 +82,16 @@ class DatabaseManager:
                 user=self.config.DB_USER,
                 password=self.config.DB_PASSWORD,
                 connect_timeout=5,
+                # Server-side cap on any single statement. connect_timeout
+                # only bounds the connect. This is the ONLY thing bounding a
+                # slow query now: gunicorn runs gthread workers, where
+                # --timeout is a worker-liveness heartbeat, not a request
+                # watchdog — a thread stuck on a query is never reaped, and it
+                # holds a pool connection while it waits. A cascade delete or
+                # lock contention could otherwise wedge a worker until
+                # redeploy, for every tenant on it. Exceeding this aborts the
+                # transaction, which rolls back cleanly.
+                options='-c statement_timeout=30000',
                 # TCP keepalives — let the OS detect a silently dropped
                 # conn within ~80s instead of "until next reboot."
                 keepalives=1,
@@ -69,8 +104,11 @@ class DatabaseManager:
             return True
         except Exception as e:
             print(f"Warning: Database not available yet: {e}")
-            self.connection_pool = None
-            self._pool_initialized = False
+            # Only clear what this attempt created. Blindly nulling would
+            # discard a pool built by an earlier successful attempt, orphaning
+            # every connection checked out from it.
+            if not self._pool_initialized:
+                self.connection_pool = None
             return False
 
     def close_pool(self) -> None:
