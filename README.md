@@ -245,6 +245,8 @@ This allows tenant sites to initialize users in their own systems after verifica
 
 All events share the same envelope and body shape; `X-Aegis-Event` and `event_type` carry the event name. `event_id` uniquely identifies the event — use it to deduplicate deliveries and to reference the event when reporting delivery problems (it matches the `webhook_events` log on the Aegis side).
 
+> **Branch on the body's `event_type`, never on the `X-Aegis-Event` header.** The signature covers `"{timestamp}.{raw_body}"`, so the body's `event_type` is signed but **the header is not**. A captured delivery replayed inside the 300s freshness window with the header rewritten — a `user.verified` turned into a `user.deleted` naming the same user — still verifies. A handler that dispatches on the header would act on the forged type. Treat the header as a routing/logging hint only. `WebhookVerifier` (byteforge-aegis-models 2.5.0+) additionally rejects any delivery whose header disagrees with its body.
+
 ```
 POST {webhook_url}
 Content-Type: application/json
