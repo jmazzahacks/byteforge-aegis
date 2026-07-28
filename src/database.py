@@ -82,15 +82,14 @@ class DatabaseManager:
                 user=self.config.DB_USER,
                 password=self.config.DB_PASSWORD,
                 connect_timeout=5,
-                # Server-side cap on any single statement. connect_timeout
-                # only bounds the connect. This is the ONLY thing bounding a
-                # slow query now: gunicorn runs gthread workers, where
-                # --timeout is a worker-liveness heartbeat, not a request
-                # watchdog — a thread stuck on a query is never reaped, and it
-                # holds a pool connection while it waits. A cascade delete or
-                # lock contention could otherwise wedge a worker until
-                # redeploy, for every tenant on it. Exceeding this aborts the
-                # transaction, which rolls back cleanly.
+                # Statement cap for DIRECT Postgres connections. Kept because
+                # it is correct and free where it applies — but be aware it is
+                # SILENTLY DISCARDED when a transaction-pooling proxy sits in
+                # front (pgcat on athena drops it; the app's own pool reads
+                # back statement_timeout = 0). Do not treat this line as the
+                # guarantee. The bound that actually holds is _bound_statement_time's
+                # per-transaction SET LOCAL on the destructive paths, plus a
+                # role-level default where the DBA has set one.
                 options='-c statement_timeout=30000',
                 # TCP keepalives — let the OS detect a silently dropped
                 # conn within ~80s instead of "until next reboot."
@@ -120,6 +119,28 @@ class DatabaseManager:
     def __del__(self):
         """Cleanup connection pool when instance is destroyed"""
         self.close_pool()
+
+    @staticmethod
+    def _bound_statement_time(cursor) -> None:
+        """Cap how long the current transaction's statements may run.
+
+        Applied to the destructive paths only — the cascade deletes, which are
+        the realistic candidates for a long-running statement or for blocking
+        on a lock. Everything else is a single-row lookup by UUID.
+
+        This exists because the connect-time statement_timeout does NOT reach
+        Postgres: pgcat fronts athena in TRANSACTION pooling mode, where server
+        connections are shared between clients, so per-connection startup GUCs
+        are silently discarded (verified 2026-07-28 — the app's own pool read
+        back statement_timeout = 0). SET LOCAL is transaction-scoped, so it
+        survives that.
+
+        The durable fix is a role-level default (ALTER ROLE ... SET
+        statement_timeout), requested from athena-admin. This stays regardless:
+        it travels with the application, so the protection does not depend on
+        remembering to configure whichever database this is pointed at next.
+        """
+        cursor.execute("SET LOCAL statement_timeout = '30s'")
 
     @staticmethod
     def _check_alive(conn: connection) -> None:
@@ -373,6 +394,7 @@ class DatabaseManager:
             bool: True if a site was deleted, False if the site was not found
         """
         with self.get_cursor(commit=True) as cursor:
+            self._bound_statement_time(cursor)
             # Both protection guards live here as well as in the route, so a
             # protection set concurrently with an in-flight delete wins and a
             # future caller reaching this method directly can't cascade away
@@ -551,6 +573,7 @@ class DatabaseManager:
             bool: True if user was deleted, False if user not found
         """
         with self.get_cursor(commit=True) as cursor:
+            self._bound_statement_time(cursor)
             # Delete related tokens first (foreign key constraints)
             cursor.execute("DELETE FROM auth_tokens WHERE user_uuid = %s", (user_uuid,))
             cursor.execute("DELETE FROM refresh_tokens WHERE user_uuid = %s", (user_uuid,))
