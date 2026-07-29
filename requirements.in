@@ -24,7 +24,6 @@
 # instead — they deliberately float to latest.
 
 Flask
-Flask-CORS
 Flask-Limiter[redis]
 psycopg2-binary
 bcrypt

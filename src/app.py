@@ -4,10 +4,10 @@ import re
 import time
 
 from flask import Flask, g, request
-from flask_cors import CORS
 from byteforge_loki_logging import configure_logging
 
 from config import get_config
+from utils.cors_origins import allowed_origins
 from utils.rate_limit import (
     LOGIN_LIMIT,
     PASSWORD_RESET_LIMIT,
@@ -60,14 +60,60 @@ def create_app() -> Flask:
     config = get_config()
     app.config.from_object(config)
 
-    # Enable CORS - Allow all origins for multi-tenant architecture
-    # In production, configure allowed origins via CORS_ORIGINS environment variable
-    cors_origins = os.getenv('CORS_ORIGINS', '*')
-    if cors_origins == '*':
-        CORS(app)
-    else:
-        # Comma-separated list of allowed origins
-        CORS(app, origins=cors_origins.split(','))
+    # CORS is restricted to the tenants' own frontends, derived from the
+    # sites table. It used to be '*' — and env.docker.example shipped that
+    # value, so the wildcard was the deployed policy, not a dev default.
+    # That let any web page drive this auth API from a visitor's browser and
+    # read the response, which combined with per-account (rather than
+    # per-IP) rate limits is a distributed credential-stuffing surface
+    # sourced from real residential addresses.
+    #
+    # CORS_ORIGINS still wins when set, including the literal '*', so an
+    # operator can override without a code change. Otherwise the list comes
+    # from the database and refreshes on a TTL, so a new tenant works
+    # without a restart.
+    #
+    # Handled here rather than with flask-cors because that library resolves
+    # its options once, at init. An allow-list that changes while the process
+    # runs cannot be expressed through it — updating app.config per request
+    # is silently ignored, and the failure mode looks like success: every
+    # origin is echoed back, including ones that should have been refused.
+    #
+    # No Access-Control-Allow-Credentials: this API is bearer-authenticated
+    # with no cookies, so the browser has no ambient credential to attach.
+    cors_override = os.getenv('CORS_ORIGINS')
+
+    @app.after_request
+    def _apply_cors(response):
+        origin = request.headers.get('Origin')
+        if not origin:
+            return response
+
+        if cors_override == '*':
+            permitted = True
+        elif cors_override:
+            permitted = origin in [o.strip() for o in cors_override.split(',')]
+        else:
+            permitted = origin in allowed_origins()
+
+        if not permitted:
+            return response
+
+        response.headers['Access-Control-Allow-Origin'] = origin
+        # Without Vary, a shared cache could serve one tenant's allowed
+        # response to a different origin.
+        response.headers.add('Vary', 'Origin')
+
+        if request.method == 'OPTIONS':
+            response.headers['Access-Control-Allow-Methods'] = (
+                'GET, POST, PUT, DELETE, OPTIONS'
+            )
+            response.headers['Access-Control-Allow-Headers'] = (
+                'Content-Type, Authorization, X-API-Key, X-Tenant-Api-Key'
+            )
+            response.headers['Access-Control-Max-Age'] = '600'
+
+        return response
 
     # Register blueprints
     from api.register import register_bp

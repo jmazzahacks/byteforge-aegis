@@ -338,6 +338,24 @@ class DatabaseManager:
             row = cursor.fetchone()
             return Site.from_dict(row) if row else None
 
+    def list_site_frontend_urls(self) -> List[str]:
+        """
+        Every site's frontend_url, and nothing else.
+
+        Deliberately narrow: this feeds the CORS allow-list, which needs one
+        column. The master-key site listing selects tenant_api_key,
+        webhook_secret and mailgun_api_key — no reason to pull every
+        tenant's secrets into memory on a cache refresh.
+
+        Returns:
+            List[str]: frontend_url for each site, nulls excluded
+        """
+        with self.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT frontend_url FROM sites WHERE frontend_url IS NOT NULL"
+            )
+            return [row['frontend_url'] for row in cursor.fetchall()]
+
     def find_site_by_domain(self, domain: str) -> Optional['Site']:
         """
         Find a site by its domain.
