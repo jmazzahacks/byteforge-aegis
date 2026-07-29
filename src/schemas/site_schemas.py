@@ -5,17 +5,24 @@ from marshmallow import Schema, fields, validate
 
 from schemas.strict_fields import StrictBoolean
 
+# Every boolean below is StrictBoolean rather than fields.Boolean. The
+# default coerces "false"/"0"/"off"/"no" and numeric 0 and 1, so a client
+# bridge that serialises booleans numerically could silently flip a control
+# it never meant to touch: enable open registration on a closed tenant,
+# rotate a live tenant API key out from under an integration, or clear
+# tenant-wide deletion protection.
+
 
 class CreateSiteRequestSchema(Schema):
     """Schema for creating a new site"""
     name = fields.String(required=True, validate=validate.Length(min=1, max=255))
     domain = fields.String(required=True, validate=validate.Length(min=1, max=255))
-    frontend_url = fields.Url(required=True)
-    verification_redirect_url = fields.Url(required=False, allow_none=True)
-    email_from = fields.Email(required=True)
+    frontend_url = fields.Url(required=True, validate=validate.Length(max=255))
+    verification_redirect_url = fields.Url(required=False, allow_none=True, validate=validate.Length(max=255))
+    email_from = fields.Email(required=True, validate=validate.Length(max=255))
     email_from_name = fields.String(required=True, validate=validate.Length(min=1, max=255))
-    allow_self_registration = fields.Boolean(load_default=True)
-    webhook_url = fields.Url(required=False, allow_none=True)
+    allow_self_registration = StrictBoolean(load_default=True)
+    webhook_url = fields.Url(required=False, allow_none=True, validate=validate.Length(max=255))
     mailgun_domain = fields.String(required=False, allow_none=True, validate=validate.Length(max=255))
     mailgun_api_key = fields.String(required=False, allow_none=True, validate=validate.Length(max=255))
 
@@ -24,18 +31,16 @@ class UpdateSiteRequestSchema(Schema):
     """Schema for updating a site (all fields optional)"""
     name = fields.String(required=False, validate=validate.Length(min=1, max=255))
     domain = fields.String(required=False, validate=validate.Length(min=1, max=255))
-    frontend_url = fields.Url(required=False)
-    verification_redirect_url = fields.Url(required=False, allow_none=True)
-    email_from = fields.Email(required=False)
+    frontend_url = fields.Url(required=False, validate=validate.Length(max=255))
+    verification_redirect_url = fields.Url(required=False, allow_none=True, validate=validate.Length(max=255))
+    email_from = fields.Email(required=False, validate=validate.Length(max=255))
     email_from_name = fields.String(required=False, validate=validate.Length(min=1, max=255))
-    allow_self_registration = fields.Boolean(required=False)
-    webhook_url = fields.Url(required=False, allow_none=True)
-    regenerate_webhook_secret = fields.Boolean(required=False)
-    regenerate_tenant_api_key = fields.Boolean(required=False)
+    allow_self_registration = StrictBoolean(required=False)
+    webhook_url = fields.Url(required=False, allow_none=True, validate=validate.Length(max=255))
+    regenerate_webhook_secret = StrictBoolean(required=False)
+    regenerate_tenant_api_key = StrictBoolean(required=False)
     mailgun_domain = fields.String(required=False, allow_none=True, validate=validate.Length(max=255))
     mailgun_api_key = fields.String(required=False, allow_none=True, validate=validate.Length(max=255))
-    # StrictBoolean, not fields.Boolean: the default coerces "false"/"0"/"off"
-    # and numeric 0, any of which would silently clear tenant-wide protection.
     deletion_protected = StrictBoolean(required=False)
 
 

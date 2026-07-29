@@ -265,17 +265,23 @@ class AuthService:
         if not user or user.site_uuid != site_uuid:
             raise ValueError("Invalid or expired verification token")
 
-        # Check if password is required BEFORE consuming the token
+        # Hash BEFORE consuming the token. The token is one-time use, so
+        # anything that can fail after it is consumed leaves the account
+        # unverified, with no password and no usable link — unrecoverable
+        # without an operator running resend-verification. Hashing is the
+        # step that can fail, so it goes first and the row is only touched
+        # once a hash exists.
+        new_password_hash = None
         if user.password_hash is None:
             if not password:
                 raise ValueError("Password is required to complete account setup")
+            new_password_hash = password_service.hash_password(password)
 
         # Now consume the token (one-time use)
         token_service.validate_email_verification_token(token)
 
-        # Set password if provided (for admin-created users)
-        if user.password_hash is None:
-            user.password_hash = password_service.hash_password(password)
+        if new_password_hash is not None:
+            user.password_hash = new_password_hash
 
         # Get site info for redirect URL
         site = db_manager.find_site_by_uuid(user.site_uuid)

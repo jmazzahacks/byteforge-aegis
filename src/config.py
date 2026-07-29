@@ -36,6 +36,13 @@ class Config:
     REFRESH_TOKEN_ROTATION: bool = os.getenv('REFRESH_TOKEN_ROTATION', 'true').lower() == 'true'
     REFRESH_TOKEN_GRACE_PERIOD: int = int(os.getenv('REFRESH_TOKEN_GRACE_PERIOD', 30))  # seconds
 
+    # Largest request body Flask will accept. Every endpoint here takes a
+    # small JSON object, and the tenant-key middleware parses the body to
+    # find site_id BEFORE any credential is checked — so without a cap an
+    # unauthenticated caller can make a worker buffer an arbitrarily large
+    # request. 64 KiB is far above any legitimate payload.
+    MAX_CONTENT_LENGTH: int = int(os.getenv('MAX_CONTENT_LENGTH', 64 * 1024))
+
     # Application
     APP_HOST: str = os.getenv('APP_HOST', '0.0.0.0')
     APP_PORT: int = int(os.getenv('APP_PORT', 5678))
@@ -57,8 +64,15 @@ class ProductionConfig(Config):
 
 
 def get_config() -> Config:
-    """Get configuration based on environment"""
-    env = os.getenv('FLASK_ENV', 'development')
+    """
+    Get configuration based on environment.
+
+    Defaults to production. An unset or misspelled FLASK_ENV used to select
+    the development config, so the failure mode of a deployment mistake was
+    DEBUG=True in production — fail-open on exactly the setting you least
+    want to get wrong. Developers opt in explicitly instead.
+    """
+    env = os.getenv('FLASK_ENV', 'production')
 
     if env == 'production':
         return ProductionConfig()

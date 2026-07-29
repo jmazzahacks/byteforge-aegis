@@ -84,6 +84,32 @@ class TokenService:
         """
         return db_manager.delete_auth_token(token)
 
+    def revoke_refresh_family_for_user(self, refresh_token: str, user_uuid: str) -> bool:
+        """
+        Revoke the family a refresh token belongs to, for one specific user.
+
+        The ownership check is not a formality. Without it, any authenticated
+        caller could end an arbitrary user's session by presenting that
+        user's refresh token — turning logout into a denial-of-service
+        primitive against other accounts, and one reachable across tenants
+        since refresh tokens are looked up by value alone.
+
+        Args:
+            refresh_token: The refresh token whose family should be revoked
+            user_uuid: The authenticated caller, who must own that token
+
+        Returns:
+            bool: True if a family was revoked, False if the token is
+                  unknown or belongs to somebody else.
+        """
+        stored = db_manager.find_refresh_token_by_token(refresh_token)
+
+        if stored is None or stored.user_uuid != user_uuid:
+            return False
+
+        db_manager.revoke_refresh_token_family(stored.family_id)
+        return True
+
     def invalidate_user_tokens(self, user_uuid: str) -> None:
         """
         Invalidate all authentication tokens for a specific user.
@@ -154,28 +180,18 @@ class TokenService:
         if refresh_token.expires_at < current_time:
             return None
 
-        if self.config.REFRESH_TOKEN_ROTATION:
-            if refresh_token.used_at is not None:
-                grace_period_end = refresh_token.used_at + self.config.REFRESH_TOKEN_GRACE_PERIOD
+        if not self.config.REFRESH_TOKEN_ROTATION:
+            return RefreshTokenResult(
+                user_uuid=refresh_token.user_uuid,
+                site_uuid=refresh_token.site_uuid,
+                new_refresh_token=None
+            )
 
-                if current_time <= grace_period_end:
-                    latest = db_manager.find_latest_refresh_token_in_family(refresh_token.family_id)
-                    if latest and latest.token != refresh_token.token:
-                        return RefreshTokenResult(
-                            user_uuid=latest.user_uuid,
-                            site_uuid=latest.site_uuid,
-                            new_refresh_token=latest
-                        )
-                    return RefreshTokenResult(
-                        user_uuid=refresh_token.user_uuid,
-                        site_uuid=refresh_token.site_uuid,
-                        new_refresh_token=None
-                    )
-                else:
-                    db_manager.revoke_refresh_token_family(refresh_token.family_id)
-                    raise ValueError("Refresh token reuse detected - all sessions revoked")
-
-            db_manager.mark_refresh_token_used(token, current_time)
+        # The claim decides the outcome, not the used_at we read a moment
+        # ago. Testing the value we read and then writing was a race: two
+        # concurrent requests both saw it unused and both rotated, forking
+        # the family so reuse detection never fired again.
+        if refresh_token.used_at is None and db_manager.claim_refresh_token(token, current_time):
             new_token = self.create_refresh_token(
                 refresh_token.site_uuid,
                 refresh_token.user_uuid,
@@ -186,12 +202,52 @@ class TokenService:
                 site_uuid=refresh_token.site_uuid,
                 new_refresh_token=new_token
             )
-        else:
+
+        # Either it was already used when we read it, or a concurrent
+        # request claimed it first. Re-read so the grace window is measured
+        # against the authoritative used_at rather than a stale copy.
+        return self._handle_used_refresh_token(token, current_time)
+
+    def _handle_used_refresh_token(self, token: str, current_time: int) -> Optional[RefreshTokenResult]:
+        """
+        Resolve a refresh token that was already consumed.
+
+        Inside the grace window this converges concurrent refreshes onto the
+        family's current token instead of failing one of them. Past it, the
+        only innocent explanation is gone and the presentation is treated as
+        theft.
+
+        Raises:
+            ValueError: If reuse is detected outside the grace window.
+        """
+        refresh_token = db_manager.find_refresh_token_by_token(token)
+        if not refresh_token or refresh_token.revoked:
+            return None
+
+        grace_period_end = (refresh_token.used_at or current_time) + self.config.REFRESH_TOKEN_GRACE_PERIOD
+
+        if current_time > grace_period_end:
+            db_manager.revoke_refresh_token_family(refresh_token.family_id)
+            # The thief's auth token is the credential they are actually
+            # holding; revoking only the refresh family would leave it
+            # working for up to AUTH_TOKEN_EXPIRATION after we have already
+            # concluded the session is compromised.
+            db_manager.delete_auth_tokens_by_user(refresh_token.user_uuid)
+            raise ValueError("Refresh token reuse detected - all sessions revoked")
+
+        latest = db_manager.find_latest_refresh_token_in_family(refresh_token.family_id)
+        if latest and latest.token != refresh_token.token:
             return RefreshTokenResult(
-                user_uuid=refresh_token.user_uuid,
-                site_uuid=refresh_token.site_uuid,
-                new_refresh_token=None
+                user_uuid=latest.user_uuid,
+                site_uuid=latest.site_uuid,
+                new_refresh_token=latest
             )
+
+        return RefreshTokenResult(
+            user_uuid=refresh_token.user_uuid,
+            site_uuid=refresh_token.site_uuid,
+            new_refresh_token=None
+        )
 
     def invalidate_user_refresh_tokens(self, user_uuid: str) -> None:
         """

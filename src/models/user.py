@@ -15,6 +15,19 @@ class User(BaseUser):
     password_hash: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
+        """
+        Serialise WITHOUT the password hash.
+
+        to_dict() is the obvious thing to reach for in a handler, and it
+        used to include password_hash — so any handler taking that shortcut
+        would have leaked bcrypt hashes for the whole tenant. Nothing did,
+        but verify_email.py carries a comment recording that it nearly
+        happened. Use to_db_dict() where the hash is genuinely needed.
+        """
+        return super().to_dict()
+
+    def to_db_dict(self) -> Dict[str, Any]:
+        """Serialise including the password hash, for persistence only."""
         result = super().to_dict()
         result['password_hash'] = self.password_hash
         return result

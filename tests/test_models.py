@@ -81,13 +81,17 @@ def test_user_to_dict():
     assert user_dict['uuid'] == USER_UUID
     assert user_dict['site_uuid'] == SITE_UUID
     assert user_dict['email'] == "test@example.com"
-    assert user_dict['password_hash'] == "hashed_password"
     assert user_dict['is_verified'] is True
     assert user_dict['role'] == 'user'
     assert user_dict['created_at'] == current_time
     assert user_dict['updated_at'] == current_time
     assert 'id' not in user_dict
     assert 'site_id' not in user_dict
+
+    # to_dict() is what a handler reaches for by reflex, so it must not
+    # carry the hash. Persistence uses to_db_dict() explicitly.
+    assert 'password_hash' not in user_dict
+    assert user.to_db_dict()['password_hash'] == "hashed_password"
 
 
 def test_user_from_dict():

@@ -725,20 +725,32 @@ class DatabaseManager:
             row = cursor.fetchone()
             return RefreshToken.from_dict(row) if row else None
 
-    def mark_refresh_token_used(self, token: str, used_at: int) -> bool:
+    def claim_refresh_token(self, token: str, used_at: int) -> bool:
         """
-        Mark a refresh token as used with timestamp.
+        Atomically claim a refresh token, succeeding for exactly one caller.
+
+        The `used_at IS NULL` guard is what makes rotation safe under
+        concurrency. Without it the caller had to read the row, test used_at,
+        and then write — three separate transactions, since each cursor takes
+        its own pooled connection. Two requests presenting the same token
+        both saw NULL, both wrote, and both minted a successor in the same
+        family. The family forked into two live branches, neither of which
+        ever presents an already-used token, so reuse detection could never
+        fire again on either. A thief racing the legitimate client got a
+        permanent parallel session that revocation would never reach.
 
         Args:
-            token: The token string to mark as used
-            used_at: Unix timestamp when the token was used
+            token: The token string to claim
+            used_at: Unix timestamp of the claim
 
         Returns:
-            bool: True if updated, False if not found
+            bool: True if this caller claimed it, False if it was already
+                  claimed (by a concurrent request or an earlier one).
         """
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
-                "UPDATE refresh_tokens SET used_at = %s WHERE token = %s",
+                "UPDATE refresh_tokens SET used_at = %s "
+                "WHERE token = %s AND used_at IS NULL",
                 (used_at, token)
             )
             return cursor.rowcount > 0
@@ -774,8 +786,13 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
+                # created_at is unix SECONDS, so a burst of rotations lands in
+                # the same value and the tie would be broken arbitrarily by the
+                # planner — which could return an older sibling as "latest" and
+                # hand a converging client a superseded token. id breaks it.
                 """SELECT site_uuid, user_uuid, token, family_id, expires_at, created_at, used_at, revoked
-                   FROM refresh_tokens WHERE family_id = %s ORDER BY created_at DESC LIMIT 1""",
+                   FROM refresh_tokens WHERE family_id = %s
+                   ORDER BY created_at DESC, id DESC LIMIT 1""",
                 (family_id,)
             )
             row = cursor.fetchone()

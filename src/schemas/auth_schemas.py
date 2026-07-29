@@ -11,27 +11,27 @@ from schemas.strict_fields import StrictBoolean
 class RegisterRequestSchema(Schema):
     """Schema for user registration request (password optional - can set via email verification)"""
     site_id = SiteIdentifierField(required=True)
-    email = fields.Email(required=True)
+    email = fields.Email(required=True, validate=validate.Length(max=255))
     password = PasswordField()  # Optional - if not provided, user sets via email
 
 
 class AdminRegisterRequestSchema(Schema):
     """Schema for admin user registration request (no password - user sets via email)"""
     site_id = SiteIdentifierField(required=True)
-    email = fields.Email(required=True)
+    email = fields.Email(required=True, validate=validate.Length(max=255))
     role = fields.String(validate=validate.OneOf(['user', 'admin']))
 
 
 class TenantAdminRegisterSchema(Schema):
     """Schema for tenant admin user registration (site_id derived from admin's token)"""
-    email = fields.Email(required=True)
+    email = fields.Email(required=True, validate=validate.Length(max=255))
     role = fields.String(validate=validate.OneOf(['user', 'admin']))
 
 
 class LoginRequestSchema(Schema):
     """Schema for login request"""
     site_id = SiteIdentifierField(required=True)
-    email = fields.Email(required=True)
+    email = fields.Email(required=True, validate=validate.Length(max=255))
     password = ExistingPasswordField(required=True)
 
 
@@ -57,7 +57,7 @@ class ChangePasswordRequestSchema(Schema):
 class RequestPasswordResetSchema(Schema):
     """Schema for password reset request"""
     site_id = SiteIdentifierField(required=True)
-    email = fields.Email(required=True)
+    email = fields.Email(required=True, validate=validate.Length(max=255))
 
 
 class ResetPasswordRequestSchema(Schema):
@@ -69,7 +69,7 @@ class ResetPasswordRequestSchema(Schema):
 
 class RequestEmailChangeSchema(Schema):
     """Schema for email change request"""
-    new_email = fields.Email(required=True)
+    new_email = fields.Email(required=True, validate=validate.Length(max=255))
 
 
 class ConfirmEmailChangeSchema(Schema):
