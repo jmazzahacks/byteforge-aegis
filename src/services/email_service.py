@@ -24,6 +24,23 @@ _EMAIL_POOL = ThreadPoolExecutor(
 )
 
 
+def redact_email(address: Optional[str]) -> str:
+    """
+    An address safe to put in a shared log store.
+
+    Logs from every tenant land in one Loki instance, so writing recipients
+    verbatim accumulates a cross-tenant mailing list of end users — and the
+    access logger's own policy is to keep user identifiers out of logs. The
+    domain is kept because "is this tenant's mail failing?" is the question
+    these lines exist to answer; the local part is not needed for that.
+    """
+    if not address or '@' not in address:
+        return '<redacted>'
+
+    local, _, domain = address.partition('@')
+    return f'{local[:1]}***@{domain}'
+
+
 def _log_failure(future: Future) -> None:
     """Surface a failed send; nothing else retrieves the future."""
     error = future.exception()
@@ -78,7 +95,7 @@ class EmailService:
                 logger.warning(
                     "Mailgun domain/from-address mismatch: from=%s sending_domain=%s "
                     "— DMARC alignment will fail for this site",
-                    site_email_from, domain
+                    redact_email(site_email_from), domain
                 )
 
         return domain, api_key
@@ -124,7 +141,8 @@ class EmailService:
 
         api_url = f"https://api.mailgun.net/v3/{domain}/messages"
 
-        logger.info(f"Attempting to send email to {to_email} from {from_email} via {domain}")
+        logger.info("Attempting to send email to %s from %s via %s",
+                    redact_email(to_email), redact_email(from_email), domain)
         logger.debug(f"Subject: {subject}")
 
         try:
@@ -152,7 +170,8 @@ class EmailService:
             )
 
             if response.status_code == 200:
-                logger.info(f"✓ Email sent successfully to {to_email} (Status: {response.status_code})")
+                logger.info("✓ Email sent successfully to %s (Status: %s)",
+                            redact_email(to_email), response.status_code)
                 logger.debug(f"Mailgun response: {response.json()}")
                 return True
             else:
@@ -160,13 +179,15 @@ class EmailService:
                 return False
 
         except requests.exceptions.Timeout:
-            logger.error(f"✗ Timeout sending email to {to_email}", exc_info=True)
+            logger.error("✗ Timeout sending email to %s", redact_email(to_email), exc_info=True)
             return False
         except requests.exceptions.RequestException as e:
-            logger.error(f"✗ Request error sending email to {to_email}: {str(e)}", exc_info=True)
+            logger.error("✗ Request error sending email to %s: %s",
+                         redact_email(to_email), e, exc_info=True)
             return False
         except Exception as e:
-            logger.error(f"✗ Error sending email to {to_email}: {str(e)}", exc_info=True)
+            logger.error("✗ Error sending email to %s: %s",
+                         redact_email(to_email), e, exc_info=True)
             return False
 
     def send_verification_email(

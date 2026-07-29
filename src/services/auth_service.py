@@ -384,6 +384,10 @@ class AuthService:
         # Invalidate all existing tokens for security
         token_service.invalidate_user_tokens(user_uuid)
         token_service.invalidate_user_refresh_tokens(user_uuid)
+        # ...and the pending paths that could mint a new credential. A reset
+        # token or email-change link the attacker already triggered outlives
+        # a password change otherwise, and re-establishes their access.
+        token_service.invalidate_user_recovery_artifacts(user_uuid)
 
         return updated_user
 
@@ -462,6 +466,10 @@ class AuthService:
         # Invalidate all existing tokens for security
         token_service.invalidate_user_tokens(user_uuid)
         token_service.invalidate_user_refresh_tokens(user_uuid)
+        # ...and the pending paths that could mint a new credential. A reset
+        # token or email-change link the attacker already triggered outlives
+        # a password change otherwise, and re-establishes their access.
+        token_service.invalidate_user_recovery_artifacts(user_uuid)
 
         return updated_user
 

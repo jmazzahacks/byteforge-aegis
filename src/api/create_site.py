@@ -1,6 +1,8 @@
 """
 Create site endpoint.
 """
+import logging
+
 from flask import Blueprint, jsonify
 import time
 from database import db_manager
@@ -10,6 +12,8 @@ from services.webhook_service import webhook_service
 from services.tenant_key_service import tenant_key_service
 from utils.validators import validate_request
 from utils.api_key_middleware import require_master_api_key
+
+logger = logging.getLogger(__name__)
 
 create_site_bp = Blueprint('create_site', __name__)
 
@@ -61,4 +65,10 @@ def create_site(validated_data):
     except Exception as e:
         if 'duplicate' in str(e).lower() or 'unique' in str(e).lower():
             return jsonify({'error': 'Domain already exists'}), 400
-        return jsonify({'error': str(e)}), 500
+        # Log the detail, return a generic message. str(e) here is psycopg2's
+        # text — constraint names, table and column names, sometimes a
+        # fragment of the failing statement. The audience is master-key
+        # holders, so this is not a disclosure to strangers, but there is no
+        # reason to hand out schema internals when the log has them.
+        logger.exception('Unexpected error creating site')
+        return jsonify({'error': 'Failed to create site'}), 500

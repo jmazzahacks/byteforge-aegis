@@ -99,10 +99,10 @@ class DatabaseManager:
                 keepalives_count=5,
             )
             self._pool_initialized = True
-            print("Database connection pool initialized successfully")
+            logger.info("Database connection pool initialized successfully")
             return True
         except Exception as e:
-            print(f"Warning: Database not available yet: {e}")
+            logger.warning("Database not available yet: %s", e)
             # Only clear what this attempt created. Blindly nulling would
             # discard a pool built by an earlier successful attempt, orphaning
             # every connection checked out from it.
@@ -114,7 +114,7 @@ class DatabaseManager:
         """Close all connections in the pool"""
         if self.connection_pool:
             self.connection_pool.closeall()
-            print("Database connection pool closed")
+            logger.info("Database connection pool closed")
 
     def __del__(self):
         """Cleanup connection pool when instance is destroyed"""
@@ -222,7 +222,8 @@ class DatabaseManager:
                 self._safe_putback(conn, close=True)
                 if dead:
                     last_err = e
-                    print(f"DB checkout pre-ping failed (attempt {attempt + 1}/{MAX_HEALTH_RETRIES}): {e}")
+                    logger.warning("DB checkout pre-ping failed (attempt %s/%s): %s",
+                                   attempt + 1, MAX_HEALTH_RETRIES, e)
                     continue
                 raise
 
@@ -810,6 +811,34 @@ class DatabaseManager:
         """
         with self.get_cursor(commit=True) as cursor:
             cursor.execute("DELETE FROM refresh_tokens WHERE user_uuid = %s", (user_uuid,))
+            return cursor.rowcount
+
+    def delete_password_reset_tokens_by_user(self, user_uuid: str) -> int:
+        """
+        Delete all password reset tokens for a user.
+
+        Args:
+            user_uuid: The user's UUID
+
+        Returns:
+            int: Number of tokens deleted
+        """
+        with self.get_cursor(commit=True) as cursor:
+            cursor.execute("DELETE FROM password_reset_tokens WHERE user_uuid = %s", (user_uuid,))
+            return cursor.rowcount
+
+    def delete_email_change_requests_by_user(self, user_uuid: str) -> int:
+        """
+        Delete all pending email change requests for a user.
+
+        Args:
+            user_uuid: The user's UUID
+
+        Returns:
+            int: Number of requests deleted
+        """
+        with self.get_cursor(commit=True) as cursor:
+            cursor.execute("DELETE FROM email_change_requests WHERE user_uuid = %s", (user_uuid,))
             return cursor.rowcount
 
     def delete_expired_refresh_tokens(self, current_time: int) -> int:

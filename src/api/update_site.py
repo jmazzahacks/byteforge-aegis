@@ -1,6 +1,8 @@
 """
 Update site endpoint.
 """
+import logging
+
 from flask import Blueprint, jsonify
 import time
 from database import db_manager
@@ -10,6 +12,8 @@ from services.tenant_key_service import tenant_key_service
 from utils.validators import validate_request
 from utils.api_key_middleware import require_master_api_key
 from utils.identifiers import resolve_site
+
+logger = logging.getLogger(__name__)
 
 update_site_bp = Blueprint('update_site', __name__)
 
@@ -93,4 +97,6 @@ def update_site(validated_data, site_id):
     except Exception as e:
         if 'duplicate' in str(e).lower() or 'unique' in str(e).lower():
             return jsonify({'error': 'Domain already exists'}), 400
-        return jsonify({'error': str(e)}), 500
+        # Generic message, detail to the log — see create_site for why.
+        logger.exception('Unexpected error updating site')
+        return jsonify({'error': 'Failed to update site'}), 500

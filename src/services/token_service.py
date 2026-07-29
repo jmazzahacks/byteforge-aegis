@@ -258,6 +258,25 @@ class TokenService:
         """
         db_manager.delete_refresh_tokens_by_user(user_uuid)
 
+    def invalidate_user_recovery_artifacts(self, user_uuid: str) -> None:
+        """
+        Delete a user's outstanding reset tokens and email change requests.
+
+        Killing sessions is not enough to recover from a compromise. The
+        usual sequence is: victim notices, changes their password, and the
+        attacker's sessions die — but any reset token or email-change
+        confirmation link the attacker already triggered is still live, and
+        either one re-establishes control. A credential change has to
+        invalidate the paths that mint credentials, not just the ones
+        already minted.
+
+        Args:
+            user_uuid: The UUID of the user whose pending recovery artifacts
+                       should be discarded
+        """
+        db_manager.delete_password_reset_tokens_by_user(user_uuid)
+        db_manager.delete_email_change_requests_by_user(user_uuid)
+
     def create_email_verification_token(self, site_uuid: str, user_uuid: str) -> EmailVerificationToken:
         """
         Create an email verification token for confirming user email ownership.
