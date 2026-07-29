@@ -39,5 +39,9 @@ def login(validated_data):
         error_msg = str(e).lower()
         if 'not verified' in error_msg:
             return jsonify({'error': str(e)}), 403
-        else:
-            return jsonify({'error': str(e)}), 401
+        # Everything else collapses to one message. Returning str(e) leaked
+        # whichever internal failure occurred, and the failures differ by
+        # whether the account exists — an unknown address returns before any
+        # password work, while a known one gets far enough to surface a
+        # different error. One request per address then distinguishes them.
+        return jsonify({'error': 'Invalid credentials'}), 401

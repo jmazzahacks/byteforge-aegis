@@ -1,10 +1,10 @@
 """
 API key authorization middleware for protecting administrative endpoints.
 """
-import hmac
 from functools import wraps
 from flask import request, jsonify
 from config import get_config
+from utils.secret_compare import constant_time_equals
 
 
 def require_master_api_key(func):
@@ -28,7 +28,7 @@ def require_master_api_key(func):
         if not api_key:
             return jsonify({'error': 'Missing X-API-Key header'}), 401
 
-        if not hmac.compare_digest(api_key, config.MASTER_API_KEY):
+        if not constant_time_equals(api_key, config.MASTER_API_KEY):
             return jsonify({'error': 'Invalid API key'}), 401
 
         return func(*args, **kwargs)

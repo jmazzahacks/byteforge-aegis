@@ -4,6 +4,7 @@ Marshmallow schemas for authentication API requests and responses.
 from marshmallow import Schema, fields, validate
 
 from schemas.identifier_fields import SiteIdentifierField
+from schemas.password_field import ExistingPasswordField, PasswordField
 from schemas.strict_fields import StrictBoolean
 
 
@@ -11,7 +12,7 @@ class RegisterRequestSchema(Schema):
     """Schema for user registration request (password optional - can set via email verification)"""
     site_id = SiteIdentifierField(required=True)
     email = fields.Email(required=True)
-    password = fields.String(validate=validate.Length(min=8))  # Optional - if not provided, user sets via email
+    password = PasswordField()  # Optional - if not provided, user sets via email
 
 
 class AdminRegisterRequestSchema(Schema):
@@ -31,14 +32,14 @@ class LoginRequestSchema(Schema):
     """Schema for login request"""
     site_id = SiteIdentifierField(required=True)
     email = fields.Email(required=True)
-    password = fields.String(required=True)
+    password = ExistingPasswordField(required=True)
 
 
 class VerifyEmailRequestSchema(Schema):
     """Schema for email verification request (with optional password for admin-created users)"""
     site_id = SiteIdentifierField(required=True)
     token = fields.String(required=True)
-    password = fields.String(validate=validate.Length(min=8))  # Optional - required only for users without password
+    password = PasswordField()  # Optional - required only for users without password
 
 
 class CheckVerificationTokenSchema(Schema):
@@ -49,8 +50,8 @@ class CheckVerificationTokenSchema(Schema):
 
 class ChangePasswordRequestSchema(Schema):
     """Schema for password change request"""
-    old_password = fields.String(required=True)
-    new_password = fields.String(required=True, validate=validate.Length(min=8))
+    old_password = ExistingPasswordField(required=True)
+    new_password = PasswordField(required=True)
 
 
 class RequestPasswordResetSchema(Schema):
@@ -63,7 +64,7 @@ class ResetPasswordRequestSchema(Schema):
     """Schema for password reset with token"""
     site_id = SiteIdentifierField(required=True)
     token = fields.String(required=True)
-    new_password = fields.String(required=True, validate=validate.Length(min=8))
+    new_password = PasswordField(required=True)
 
 
 class RequestEmailChangeSchema(Schema):

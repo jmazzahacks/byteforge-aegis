@@ -5,10 +5,10 @@ Tenant frontends must hold their site's tenant_api_key server-side and
 forward it to Aegis as the X-Tenant-Api-Key header on all calls to the
 gated public auth routes (register, login, password reset, etc.).
 """
-import hmac
 from functools import wraps
-from flask import request, jsonify
+from flask import g, request, jsonify
 from utils.identifiers import resolve_site
+from utils.secret_compare import constant_time_equals
 
 
 # Public so handlers gated by this decorator can return the same 401 body
@@ -40,17 +40,32 @@ def require_tenant_api_key(func):
         if not supplied_key:
             return jsonify(_UNIFORM_ERROR[0]), _UNIFORM_ERROR[1]
 
+        # The path wins, and disagreement is fatal. Preferring the body let a
+        # caller authenticate against their own site while a handler that
+        # re-derived the site from the path authorized against someone else's
+        # — a cross-tenant read with only one tenant's key. Flask parses a
+        # JSON body on GET too, so the two really can differ.
+        path_site_id = (request.view_args or {}).get('site_id')
         body = request.get_json(silent=True) or {}
-        site_identifier = body.get('site_id')
-        if site_identifier is None:
-            site_identifier = (request.view_args or {}).get('site_id')
+        body_site_id = body.get('site_id')
+
+        if path_site_id is not None and body_site_id is not None \
+                and body_site_id != path_site_id:
+            return jsonify(_UNIFORM_ERROR[0]), _UNIFORM_ERROR[1]
+
+        site_identifier = path_site_id if path_site_id is not None else body_site_id
 
         site = resolve_site(site_identifier)
         if site is None or not site.tenant_api_key:
             return jsonify(_UNIFORM_ERROR[0]), _UNIFORM_ERROR[1]
 
-        if not hmac.compare_digest(supplied_key, site.tenant_api_key):
+        if not constant_time_equals(supplied_key, site.tenant_api_key):
             return jsonify(_UNIFORM_ERROR[0]), _UNIFORM_ERROR[1]
+
+        # Handlers should authorize against the site we actually
+        # authenticated, rather than resolving an identifier a second time
+        # and risking a fresh disagreement.
+        g.tenant_site = site
 
         return func(*args, **kwargs)
 
