@@ -8,6 +8,7 @@ from models.refresh_token_result import RefreshTokenResult
 from models.email_verification_token import EmailVerificationToken
 from models.password_reset_token import PasswordResetToken
 from models.email_change_request import EmailChangeRequest
+from models.token_cleanup_result import TokenCleanupResult
 
 
 class TokenService:
@@ -375,19 +376,33 @@ class TokenService:
 
         return change_request
 
-    def cleanup_expired_tokens(self) -> None:
+    def cleanup_expired_tokens(self) -> TokenCleanupResult:
         """
         Remove all expired tokens from the database.
 
-        Should be run periodically to clean up expired tokens.
+        Driven by POST /api/admin/cleanup-expired-tokens, which a scheduler
+        calls periodically. Nothing expires the rows on its own: expiry is
+        enforced at validation time by comparing expires_at, so a token that
+        is never presented again is never noticed and the table grows without
+        bound. Both installs had accumulated thousands of dead rows before
+        this had any caller at all.
+
+        Each table is deleted in its own transaction, so a failure part-way
+        keeps the tables it already drained rather than rolling back the lot.
+        Re-running is always safe.
+
+        Returns:
+            TokenCleanupResult: Rows removed, per table.
         """
         current_time = int(time.time())
 
-        db_manager.delete_expired_auth_tokens(current_time)
-        db_manager.delete_expired_refresh_tokens(current_time)
-        db_manager.delete_expired_email_verification_tokens(current_time)
-        db_manager.delete_expired_password_reset_tokens(current_time)
-        db_manager.delete_expired_email_change_requests(current_time)
+        return TokenCleanupResult(
+            auth_tokens=db_manager.delete_expired_auth_tokens(current_time),
+            refresh_tokens=db_manager.delete_expired_refresh_tokens(current_time),
+            email_verification_tokens=db_manager.delete_expired_email_verification_tokens(current_time),
+            password_reset_tokens=db_manager.delete_expired_password_reset_tokens(current_time),
+            email_change_requests=db_manager.delete_expired_email_change_requests(current_time),
+        )
 
 
 # Global token service instance

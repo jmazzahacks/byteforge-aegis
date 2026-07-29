@@ -13,6 +13,7 @@ from models.user import User
 from models.email_verification_token import EmailVerificationToken
 from models.password_reset_token import PasswordResetToken
 from models.email_change_request import EmailChangeRequest
+from models.token_cleanup_result import TokenCleanupResult
 
 __all__ = [
     'AuthToken',
@@ -22,6 +23,7 @@ __all__ = [
     'PasswordResetToken',
     'RefreshToken',
     'Site',
+    'TokenCleanupResult',
     'User',
     'UserRole',
     'VerificationResult',
