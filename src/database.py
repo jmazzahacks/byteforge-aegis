@@ -10,6 +10,7 @@ from typing import Generator, List, Optional
 from byteforge_aegis_models import WebhookEvent, UserRole
 from models.user import User
 from config import get_config
+from utils.email_normalize import normalize_email
 from utils.uuid7 import generate_uuid7
 
 
@@ -447,6 +448,9 @@ class DatabaseManager:
         """
         if not user.uuid:
             user.uuid = generate_uuid7()
+        # Normalised here rather than at each caller: this is the choke point
+        # every write passes through, so a new code path cannot forget.
+        user.email = normalize_email(user.email)
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
@@ -493,7 +497,7 @@ class DatabaseManager:
         with self.get_cursor() as cursor:
             cursor.execute(
                 "SELECT uuid, site_uuid, email, password_hash, is_verified, role, created_at, updated_at, deletion_protected FROM users WHERE site_uuid = %s AND email = %s",
-                (site_uuid, email)
+                (site_uuid, normalize_email(email))
             )
             row = cursor.fetchone()
             return User.from_dict(row) if row else None
@@ -576,8 +580,8 @@ class DatabaseManager:
                     deletion_protected = %s, updated_at = %s
                 WHERE uuid = %s
                 """,
-                (user.email, user.password_hash, user.is_verified, user.role.value,
-                 user.deletion_protected, user.updated_at, user.uuid)
+                (normalize_email(user.email), user.password_hash, user.is_verified,
+                 user.role.value, user.deletion_protected, user.updated_at, user.uuid)
             )
         return user
 
