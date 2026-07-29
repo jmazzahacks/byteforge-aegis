@@ -2,11 +2,45 @@
 Email service for sending transactional emails using Mailgun.
 """
 import requests
+from concurrent.futures import Future, ThreadPoolExecutor
 from config import get_config
-from typing import Optional
+from typing import Any, Callable, Optional
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Sends run off the request thread. Mailgun is an outbound HTTP call with a
+# 10s timeout, and there are only 12 request slots in total (4 workers x 3
+# threads) — so a slow or blackholing Mailgun turned every registration and
+# password-reset request into a held slot, and enough of them starved every
+# tenant on this install of ordinary logins. Unlike webhook delivery this
+# pool touches no database, so it is sized against Mailgun concurrency
+# rather than the connection budget.
+EMAIL_DELIVERY_WORKERS = 4
+
+_EMAIL_POOL = ThreadPoolExecutor(
+    max_workers=EMAIL_DELIVERY_WORKERS,
+    thread_name_prefix='email-delivery',
+)
+
+
+def _log_failure(future: Future) -> None:
+    """Surface a failed send; nothing else retrieves the future."""
+    error = future.exception()
+    if error is not None:
+        logger.error('Email delivery failed: %s', error)
+
+
+def dispatch(send: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
+    """
+    Run an email send in the background.
+
+    Callers get no delivery result, which is the point: the request must not
+    wait on Mailgun. Delivery is best-effort and failures are logged, the
+    same posture the send functions already had — every caller ignored the
+    boolean they returned.
+    """
+    _EMAIL_POOL.submit(send, *args, **kwargs).add_done_callback(_log_failure)
 
 
 class EmailService:

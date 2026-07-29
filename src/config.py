@@ -36,6 +36,17 @@ class Config:
     REFRESH_TOKEN_ROTATION: bool = os.getenv('REFRESH_TOKEN_ROTATION', 'true').lower() == 'true'
     REFRESH_TOKEN_GRACE_PERIOD: int = int(os.getenv('REFRESH_TOKEN_GRACE_PERIOD', 30))  # seconds
 
+    # Rate limiting. Redis so counters are shared across gunicorn workers —
+    # per-process counters would multiply every limit by the worker count and
+    # reset on each rotation. The in-memory fallback matters: if Redis is
+    # unreachable we degrade to per-worker limiting rather than failing
+    # requests, because an auth service that stops authenticating when its
+    # rate-limit store blinks is worse than one that limits imprecisely.
+    RATELIMIT_STORAGE_URI: str = os.getenv('REDIS_URL', 'memory://')
+    RATELIMIT_IN_MEMORY_FALLBACK_ENABLED: bool = True
+    RATELIMIT_ENABLED: bool = os.getenv('RATELIMIT_ENABLED', 'true').lower() == 'true'
+    RATELIMIT_HEADERS_ENABLED: bool = True
+
     # Largest request body Flask will accept. Every endpoint here takes a
     # small JSON object, and the tenant-key middleware parses the body to
     # find site_id BEFORE any credential is checked — so without a cap an

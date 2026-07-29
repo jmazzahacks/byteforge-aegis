@@ -2,13 +2,21 @@
 # recompile the locked requirements.txt with:
 #
 #   uv pip compile requirements.in --override requirements-private.txt \
-#     --generate-hashes --python-version 3.13 -o requirements.full.txt
+#     -c requirements.txt --generate-hashes --python-version 3.13 \
+#     -o requirements.full.txt
 #   grep -vE '^(byteforge-aegis-models|byteforge-loki-logging) @ git\+' \
 #     requirements.full.txt > requirements.txt && rm requirements.full.txt
 #
 # Pins and hashes for the full transitive tree live in requirements.txt.
-# uv keeps existing pins on recompile — versions only move with --upgrade
-# or --upgrade-package NAME.
+#
+# The `-c requirements.txt` is load-bearing and was missing until 2026-07-29.
+# uv preserves existing pins by reading its OUTPUT file — and the output here
+# is requirements.full.txt, which never exists at the start of a run. So every
+# recompile silently re-resolved the whole tree: adding one package also moved
+# 13 unrelated pins, gunicorn among them, across a major version. Anchoring to
+# the current lock means a recompile adds only what the new entry needs.
+#
+# Versions still move deliberately with --upgrade or --upgrade-package NAME.
 #
 # First-party libs (byteforge-aegis-models, byteforge-loki-logging) are
 # listed here so the compile locks their third-party sub-tree, but they are
@@ -17,6 +25,7 @@
 
 Flask
 Flask-CORS
+Flask-Limiter[redis]
 psycopg2-binary
 bcrypt
 python-dotenv

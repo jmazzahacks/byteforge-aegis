@@ -9,7 +9,7 @@ from byteforge_aegis_models import (
 from models.user import User
 from services.password_service import password_service
 from services.token_service import token_service
-from services.email_service import email_service
+from services.email_service import dispatch as email_dispatch, email_service
 from services.webhook_service import webhook_service
 from utils.uuid7 import generate_uuid7
 
@@ -70,7 +70,8 @@ class AuthService:
             else:
                 # Self-registration: send notification email, don't reveal email exists
                 try:
-                    email_service.send_registration_attempt_email(
+                    email_dispatch(
+                        email_service.send_registration_attempt_email,
                         to_email=email,
                         site_name=site.name,
                         frontend_url=site.frontend_url,
@@ -106,7 +107,8 @@ class AuthService:
 
         # Send verification email (don't fail if email fails)
         try:
-            email_service.send_verification_email(
+            email_dispatch(
+                email_service.send_verification_email,
                 to_email=user.email,
                 token=verification_token.token,
                 site_name=site.name,
@@ -408,7 +410,8 @@ class AuthService:
         if site:
             # Send password reset email (don't fail if email fails)
             try:
-                email_service.send_password_reset_email(
+                email_dispatch(
+                    email_service.send_password_reset_email,
                     to_email=user.email,
                     token=reset_token.token,
                     site_name=site.name,
@@ -492,7 +495,8 @@ class AuthService:
         if site:
             # Send email change confirmation (don't fail if email fails)
             try:
-                email_service.send_email_change_confirmation(
+                email_dispatch(
+                    email_service.send_email_change_confirmation,
                     to_email=new_email,
                     token=change_request.token,
                     site_name=site.name,

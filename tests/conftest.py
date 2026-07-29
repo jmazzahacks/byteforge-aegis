@@ -22,10 +22,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 from database import db_manager
 from byteforge_aegis_models import AuthToken, Site, UserRole
 from models.user import User
+import services.auth_service  # noqa: F401 - registers the module in sys.modules
 from services import email_service as email_service_module
 from services.email_service import EmailService
 from utils.uuid7 import generate_uuid7
 from app import create_app
+from utils.rate_limit import limiter
 
 
 @pytest.fixture(autouse=True)
@@ -50,8 +52,25 @@ def no_outbound_email(monkeypatch):
             "Test attempted an outbound HTTP POST — stub the service instead"
         )
 
+    def inline_dispatch(send, *args, **kwargs):
+        """Run sends on the calling thread during tests.
+
+        Production dispatches to a background pool so Mailgun cannot hold a
+        request slot. In tests that would make assertions racy and, worse,
+        would swallow forbid_outbound_post — an AssertionError raised inside
+        a pool thread lands on a Future nobody inspects, so a test that
+        should fail loudly would pass silently.
+        """
+        send(*args, **kwargs)
+
     monkeypatch.setattr(EmailService, 'send_email', fake_send_email)
     monkeypatch.setattr(email_service_module.requests, 'post', forbid_outbound_post)
+    # sys.modules, not `from services import auth_service` — the package
+    # re-exports the AuthService *instance* under that name, so the plain
+    # import hands back the object rather than the module.
+    monkeypatch.setattr(
+        sys.modules['services.auth_service'], 'email_dispatch', inline_dispatch
+    )
 
 
 _real_send_email = EmailService.send_email
@@ -159,8 +178,14 @@ def user_auth_token(sample_site, sample_user):
 
 @pytest.fixture
 def test_client():
-    """Create a Flask test client"""
+    """Create a Flask test client.
+
+    Rate-limit counters live in a process-global store, so they survive
+    between tests and would otherwise accumulate across files until an
+    unrelated test started seeing 429s. Cleared per test.
+    """
     app = create_app()
+    limiter.reset()
     app.config['TESTING'] = True
     with app.test_client() as client:
         yield client

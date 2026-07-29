@@ -8,6 +8,15 @@ from flask_cors import CORS
 from byteforge_loki_logging import configure_logging
 
 from config import get_config
+from utils.rate_limit import (
+    LOGIN_LIMIT,
+    PASSWORD_RESET_LIMIT,
+    PASSWORD_RESET_SITE_LIMIT,
+    REGISTER_LIMIT,
+    limiter,
+    site_email_key,
+    site_key,
+)
 
 # Requests at or above this take a WARNING rather than INFO, so slow queries
 # surface without having to grep every access line.
@@ -114,6 +123,15 @@ def create_app() -> Flask:
     app.register_blueprint(me_bp)
     app.register_blueprint(get_user_bp)
     app.register_blueprint(cleanup_expired_tokens_bp)
+
+    # Applied to blueprints rather than as decorators on the views: each
+    # endpoint here is its own blueprint, and importing the limiter into
+    # every api module to decorate would make the import graph circular.
+    limiter.init_app(app)
+    limiter.limit(LOGIN_LIMIT, key_func=site_email_key)(login_bp)
+    limiter.limit(REGISTER_LIMIT, key_func=site_email_key)(register_bp)
+    limiter.limit(PASSWORD_RESET_LIMIT, key_func=site_email_key)(request_password_reset_bp)
+    limiter.limit(PASSWORD_RESET_SITE_LIMIT, key_func=site_key)(request_password_reset_bp)
 
     # Health check endpoint
     logger = logging.getLogger(__name__)
