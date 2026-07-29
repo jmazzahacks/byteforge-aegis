@@ -22,16 +22,18 @@ def request_email_change(validated_data):
 
     Request body:
         new_email: New email address
+        password: The caller's current password
 
     Returns:
         200: Email change request created
-        400: Invalid email or email already in use
+        400: Wrong password, invalid email, or email already in use
         401: Missing or invalid auth token
     """
     try:
         auth_service.request_email_change(
             user_uuid=request.user_uuid,
-            new_email=validated_data['new_email']
+            new_email=validated_data['new_email'],
+            password=validated_data['password']
         )
         return jsonify({'message': 'Email change confirmation sent'}), 200
     except ValueError as e:

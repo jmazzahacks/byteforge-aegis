@@ -465,23 +465,37 @@ class AuthService:
 
         return updated_user
 
-    def request_email_change(self, user_uuid: str, new_email: str) -> str:
+    def request_email_change(self, user_uuid: str, new_email: str, password: str) -> str:
         """
         Request an email change for a user.
+
+        The current password is required, matching change_password. Without
+        it, a stolen auth token was enough to take the account permanently:
+        point the address at one you control, confirm it yourself, then use
+        password reset to mint a password. A credential valid for an hour
+        became ownership, and the real owner was never emailed.
 
         Args:
             user_uuid: The user's UUID
             new_email: The new email address to verify
+            password: The user's current password
 
         Returns:
             str: The email change token
 
         Raises:
-            ValueError: If new email is already in use or user not found
+            ValueError: If the password is wrong, the new email is already
+                        in use, or the user is not found
         """
         user = db_manager.find_user_by_uuid(user_uuid)
         if not user:
             raise ValueError("User not found")
+
+        if user.password_hash is None:
+            raise ValueError("Invalid password")
+
+        if not password_service.verify_password(password, user.password_hash):
+            raise ValueError("Invalid password")
 
         # Check if new email is already in use for this site
         existing_user = db_manager.find_user_by_email(user.site_uuid, new_email)

@@ -70,6 +70,9 @@ class ResetPasswordRequestSchema(Schema):
 class RequestEmailChangeSchema(Schema):
     """Schema for email change request"""
     new_email = fields.Email(required=True, validate=validate.Length(max=255))
+    # Required: a bearer token alone must not be able to move the account's
+    # login identifier. Same reasoning as old_password on ChangePassword.
+    password = ExistingPasswordField(required=True)
 
 
 class ConfirmEmailChangeSchema(Schema):
