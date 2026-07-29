@@ -9,10 +9,15 @@ from byteforge_loki_logging import configure_logging
 from config import get_config
 from utils.cors_origins import allowed_origins
 from utils.rate_limit import (
+    LOGIN_IP_LIMIT,
     LOGIN_LIMIT,
+    PASSWORD_RESET_IP_LIMIT,
     PASSWORD_RESET_LIMIT,
     PASSWORD_RESET_SITE_LIMIT,
+    REGISTER_IP_LIMIT,
     REGISTER_LIMIT,
+    client_ip_key,
+    client_ip_unavailable,
     limiter,
     site_email_key,
     site_key,
@@ -178,6 +183,18 @@ def create_app() -> Flask:
     limiter.limit(REGISTER_LIMIT, key_func=site_email_key)(register_bp)
     limiter.limit(PASSWORD_RESET_LIMIT, key_func=site_email_key)(request_password_reset_bp)
     limiter.limit(PASSWORD_RESET_SITE_LIMIT, key_func=site_key)(request_password_reset_bp)
+
+    # Per-IP, on top of the per-account limits above. These catch a spread
+    # attack — one guess each against many accounts, which stays under every
+    # per-account limit. They exempt themselves when no trustworthy client
+    # address is available rather than collapsing every caller into one
+    # bucket, which would take logins down for every tenant at once.
+    limiter.limit(LOGIN_IP_LIMIT, key_func=client_ip_key,
+                  exempt_when=client_ip_unavailable)(login_bp)
+    limiter.limit(REGISTER_IP_LIMIT, key_func=client_ip_key,
+                  exempt_when=client_ip_unavailable)(register_bp)
+    limiter.limit(PASSWORD_RESET_IP_LIMIT, key_func=client_ip_key,
+                  exempt_when=client_ip_unavailable)(request_password_reset_bp)
 
     # Health check endpoint
     logger = logging.getLogger(__name__)
