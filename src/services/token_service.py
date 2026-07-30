@@ -212,10 +212,33 @@ class TokenService:
         """
         Resolve a refresh token that was already consumed.
 
-        Inside the grace window this converges concurrent refreshes onto the
-        family's current token instead of failing one of them. Past it, the
-        only innocent explanation is gone and the presentation is treated as
-        theft.
+        Inside the grace window the caller gets a fresh auth token and NO new
+        refresh token. Past the window, the only innocent explanation is gone
+        and the presentation is treated as theft.
+
+        This used to hand back the family's stored successor, read straight
+        out of the database, so both racers ended up holding the same token
+        and the family kept exactly one live credential. Storing digests
+        makes that impossible — the stored value is not a usable credential,
+        and returning it would give the client a SHA-256 hash to
+        authenticate with.
+
+        Minting a replacement instead was the obvious substitute and is
+        wrong: every loser of a race would mint its own successor, so one
+        parent yields several live tokens, each rotating forever, none of
+        them ever presenting an already-used token. That is the family fork
+        that makes reuse detection unreachable — measured at five live
+        tokens from four concurrent losers.
+
+        Returning no refresh token keeps one live credential per family. The
+        legitimate case is unaffected: concurrent refreshes come from one
+        client, which already holds the successor from the winning response.
+        It is also stricter than the old behaviour, which handed an attacker
+        replaying inside the window the family's current live token.
+
+        The cost is a client whose winning response was lost in transit: it
+        holds a spent token, keeps working for the grace period, and is then
+        logged out by reuse detection. Rare, and a genuinely anomalous state.
 
         Raises:
             ValueError: If reuse is detected outside the grace window.
@@ -234,14 +257,6 @@ class TokenService:
             # concluded the session is compromised.
             db_manager.delete_auth_tokens_by_user(refresh_token.user_uuid)
             raise ValueError("Refresh token reuse detected - all sessions revoked")
-
-        latest = db_manager.find_latest_refresh_token_in_family(refresh_token.family_id)
-        if latest and latest.token != refresh_token.token:
-            return RefreshTokenResult(
-                user_uuid=latest.user_uuid,
-                site_uuid=latest.site_uuid,
-                new_refresh_token=latest
-            )
 
         return RefreshTokenResult(
             user_uuid=refresh_token.user_uuid,

@@ -11,6 +11,7 @@ from byteforge_aegis_models import WebhookEvent, UserRole
 from models.user import User
 from config import get_config
 from utils.email_normalize import normalize_email
+from utils.token_hash import token_digest
 from utils.uuid7 import generate_uuid7
 
 
@@ -638,8 +639,12 @@ class DatabaseManager:
                 INSERT INTO auth_tokens (site_uuid, user_uuid, token, expires_at, created_at)
                 VALUES (%s, %s, %s, %s, %s)
                 """,
-                (auth_token.site_uuid, auth_token.user_uuid, auth_token.token, auth_token.expires_at, auth_token.created_at)
+                (auth_token.site_uuid, auth_token.user_uuid,
+                 token_digest(auth_token.token), auth_token.expires_at,
+                 auth_token.created_at)
             )
+        # Returned with the PLAINTEXT intact — the caller has to hand it to
+        # the client, and after this it exists nowhere else.
         return auth_token
 
     def find_auth_token_by_token(self, token: str) -> Optional['AuthToken']:
@@ -656,11 +661,19 @@ class DatabaseManager:
 
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT site_uuid, user_uuid, token, expires_at, created_at FROM auth_tokens WHERE token = %s",
-                (token,)
+                "SELECT site_uuid, user_uuid, token, expires_at, created_at "
+                "FROM auth_tokens WHERE token = %s",
+                (token_digest(token),)
             )
             row = cursor.fetchone()
-            return AuthToken.from_dict(row) if row else None
+            if not row:
+                return None
+            # Hand back the plaintext the caller gave us rather than the
+            # stored digest, so callers and tests see the token they asked
+            # about. The digest is an at-rest detail, not part of the model.
+            row = dict(row)
+            row['token'] = token
+            return AuthToken.from_dict(row)
 
     def delete_auth_token(self, token: str) -> bool:
         """
@@ -673,7 +686,8 @@ class DatabaseManager:
             bool: True if token was deleted, False if not found
         """
         with self.get_cursor(commit=True) as cursor:
-            cursor.execute("DELETE FROM auth_tokens WHERE token = %s", (token,))
+            cursor.execute("DELETE FROM auth_tokens WHERE token = %s",
+                           (token_digest(token),))
             return cursor.rowcount > 0
 
     def delete_auth_tokens_by_user(self, user_uuid: str) -> int:
@@ -721,7 +735,8 @@ class DatabaseManager:
                 INSERT INTO refresh_tokens (site_uuid, user_uuid, token, family_id, expires_at, created_at, used_at, revoked)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (refresh_token.site_uuid, refresh_token.user_uuid, refresh_token.token,
+                (refresh_token.site_uuid, refresh_token.user_uuid,
+                 token_digest(refresh_token.token),
                  refresh_token.family_id, refresh_token.expires_at, refresh_token.created_at,
                  refresh_token.used_at, refresh_token.revoked)
             )
@@ -743,10 +758,15 @@ class DatabaseManager:
             cursor.execute(
                 """SELECT site_uuid, user_uuid, token, family_id, expires_at, created_at, used_at, revoked
                    FROM refresh_tokens WHERE token = %s""",
-                (token,)
+                (token_digest(token),)
             )
             row = cursor.fetchone()
-            return RefreshToken.from_dict(row) if row else None
+            if not row:
+                return None
+            # Plaintext restored for the caller — see find_auth_token_by_token.
+            row = dict(row)
+            row['token'] = token
+            return RefreshToken.from_dict(row)
 
     def claim_refresh_token(self, token: str, used_at: int) -> bool:
         """
@@ -774,7 +794,7 @@ class DatabaseManager:
             cursor.execute(
                 "UPDATE refresh_tokens SET used_at = %s "
                 "WHERE token = %s AND used_at IS NULL",
-                (used_at, token)
+                (used_at, token_digest(token))
             )
             return cursor.rowcount > 0
 
@@ -794,32 +814,6 @@ class DatabaseManager:
                 (family_id,)
             )
             return cursor.rowcount
-
-    def find_latest_refresh_token_in_family(self, family_id: str) -> Optional['RefreshToken']:
-        """
-        Find the most recently created refresh token in a family.
-
-        Args:
-            family_id: The family ID to search for
-
-        Returns:
-            Optional[RefreshToken]: The most recent token in the family, None if none found
-        """
-        from byteforge_aegis_models import RefreshToken
-
-        with self.get_cursor() as cursor:
-            cursor.execute(
-                # created_at is unix SECONDS, so a burst of rotations lands in
-                # the same value and the tie would be broken arbitrarily by the
-                # planner — which could return an older sibling as "latest" and
-                # hand a converging client a superseded token. id breaks it.
-                """SELECT site_uuid, user_uuid, token, family_id, expires_at, created_at, used_at, revoked
-                   FROM refresh_tokens WHERE family_id = %s
-                   ORDER BY created_at DESC, id DESC LIMIT 1""",
-                (family_id,)
-            )
-            row = cursor.fetchone()
-            return RefreshToken.from_dict(row) if row else None
 
     def delete_refresh_tokens_by_user(self, user_uuid: str) -> int:
         """

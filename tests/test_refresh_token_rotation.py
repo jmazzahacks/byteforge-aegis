@@ -138,15 +138,36 @@ def test_rotation_issues_a_new_token_and_consumes_the_old(sample_site, user):
 
 # --- grace window ---------------------------------------------------------
 
-def test_within_grace_converges_on_the_family_current_token(sample_site, user):
-    """A concurrent client re-presenting the spent token gets the successor."""
+def test_within_grace_succeeds_but_issues_no_new_refresh_token(sample_site, user):
+    """A concurrent client re-presenting the spent token is not failed...
+
+    ...but gets no second refresh token. It does not need one: the same
+    client already holds the successor from the winning response. Issuing
+    one per loser is what forks the family.
+    """
     refresh = _make_refresh(sample_site, user)
     rotated = token_service.validate_and_rotate_refresh_token(refresh.token)
 
     again = token_service.validate_and_rotate_refresh_token(refresh.token)
 
-    assert again is not None
-    assert again.new_refresh_token.token == rotated.new_refresh_token.token
+    assert again is not None, 'the loser of a concurrent refresh must not fail'
+    assert again.user_uuid == rotated.user_uuid
+    assert again.new_refresh_token is None
+
+
+def test_grace_does_not_hand_out_the_family_live_token(sample_site, user):
+    """The old behaviour returned the family's current token to anyone
+    presenting a spent one inside the window — including an attacker
+    replaying a captured token."""
+    refresh = _make_refresh(sample_site, user)
+    rotated = token_service.validate_and_rotate_refresh_token(refresh.token)
+    live_token = rotated.new_refresh_token.token
+
+    replayed = token_service.validate_and_rotate_refresh_token(refresh.token)
+
+    assert replayed.new_refresh_token is None
+    # And the live token is still usable by its rightful holder.
+    assert token_service.validate_and_rotate_refresh_token(live_token) is not None
 
 
 # --- reuse detection ------------------------------------------------------
