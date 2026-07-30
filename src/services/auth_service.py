@@ -1,6 +1,8 @@
 import time
 import logging
 from typing import Optional
+from psycopg2 import errors
+
 from database import db_manager
 from byteforge_aegis_models import (
     AuthToken, LoginResult, UserRole, VerificationResult,
@@ -554,11 +556,31 @@ class AuthService:
         if not user:
             raise ValueError("User not found")
 
-        # Update email
+        # Re-check uniqueness HERE, not just when the change was requested.
+        # The address can be taken in between — by another registration, or by
+        # this user themselves — and the only thing catching it was the
+        # database constraint, which surfaced as an unhandled 500.
+        existing = db_manager.find_user_by_email(user.site_uuid, change_request.new_email)
+        if existing and existing.uuid != user.uuid:
+            raise ValueError("Email already in use")
+
         user.email = change_request.new_email
         user.updated_at = int(time.time())
 
-        return db_manager.update_user(user)
+        try:
+            updated_user = db_manager.update_user(user)
+        except errors.UniqueViolation:
+            # The check above narrows the window but cannot close it; two
+            # confirmations racing for the same address still collide. Convert
+            # to the same 400 rather than letting psycopg2's text escape as a
+            # 500 — and leave the token unspent so the loser can retry.
+            raise ValueError("Email already in use")
+
+        # Spend the token only once the change has actually landed. Consuming
+        # it earlier meant any failure past this point burned it.
+        token_service.consume_email_change_token(token)
+
+        return updated_user
 
     def get_user_by_token(self, token: str) -> Optional[User]:
         """

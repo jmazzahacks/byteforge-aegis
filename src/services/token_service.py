@@ -429,13 +429,23 @@ class TokenService:
 
     def validate_email_change_token(self, token: str) -> Optional[EmailChangeRequest]:
         """
-        Validate an email change token and retrieve the change request details.
+        Validate an email change token WITHOUT consuming it.
+
+        Deliberately split from consumption. This used to delete the token as
+        part of validating it, so anything that failed afterwards — most
+        realistically the unique constraint on (site_uuid, email), because
+        uniqueness was only ever checked when the change was requested —
+        destroyed the user's one-time token on the way to an error. They had
+        to restart the whole flow, with nothing explaining why.
+
+        Call consume_email_change_token once the change has actually landed.
 
         Args:
             token: The email change token string to validate
 
         Returns:
-            Optional[EmailChangeRequest]: The email change request if valid, None if invalid or expired
+            Optional[EmailChangeRequest]: The email change request if valid,
+                None if unknown or expired
         """
         change_request = db_manager.find_email_change_request(token)
 
@@ -446,10 +456,19 @@ class TokenService:
         if change_request.expires_at < current_time:
             return None
 
-        # Delete token after successful validation (one-time use)
-        db_manager.delete_email_change_request(token)
-
         return change_request
+
+    def consume_email_change_token(self, token: str) -> bool:
+        """
+        Spend an email change token, after the change it authorises succeeded.
+
+        Args:
+            token: The email change token string to consume
+
+        Returns:
+            bool: True if a token was removed
+        """
+        return db_manager.delete_email_change_request(token)
 
     def cleanup_expired_tokens(self) -> TokenCleanupResult:
         """
