@@ -151,6 +151,7 @@ def create_app() -> Flask:
     from api.me import me_bp
     from api.get_user import get_user_bp
     from api.cleanup_expired_tokens import cleanup_expired_tokens_bp
+    from api.deliver_pending_webhooks import deliver_pending_webhooks_bp
 
     app.register_blueprint(register_bp)
     app.register_blueprint(admin_register_bp)
@@ -179,6 +180,7 @@ def create_app() -> Flask:
     app.register_blueprint(me_bp)
     app.register_blueprint(get_user_bp)
     app.register_blueprint(cleanup_expired_tokens_bp)
+    app.register_blueprint(deliver_pending_webhooks_bp)
 
     # Applied to blueprints rather than as decorators on the views: each
     # endpoint here is its own blueprint, and importing the limiter into

@@ -373,7 +373,9 @@ class AuthService:
 
         updated_user = db_manager.update_user(user)
 
-        # Fire webhook to notify tenant site (background thread, non-blocking)
+        # Queue the webhook for the tenant. The outbox row is written on
+        # this thread so the event survives a crash; only the POST is
+        # backgrounded, so this does not block the response on the tenant.
         webhook_payload = WebhookPayload(
             event_id=generate_uuid7(),
             event_type=WebhookEventType.USER_VERIFIED,

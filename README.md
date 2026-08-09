@@ -310,7 +310,53 @@ curl -X PUT http://localhost:5678/api/sites/{site_id} \
   -d '{"webhook_url": null}'
 ```
 
-Webhook deliveries are logged in the `webhook_events` table for debugging. Delivery happens on a background thread and never blocks the verification response. Failed deliveries do not affect user verification.
+#### Delivery semantics
+
+**Delivery is durable and retried.** An event is written to the `webhook_deliveries` outbox *before* any HTTP attempt, then attempted immediately on a background thread. Delivery never blocks the triggering request, and a failed delivery never affects the user-facing operation.
+
+| | |
+|---|---|
+| Attempts | 6 |
+| Backoff | 30s, 2m, 10m, 1h, 6h (~7h total) |
+| Timeout | 5s per attempt |
+| Retried on | any non-2xx, plus timeouts and connection errors |
+| Gave up | status becomes `exhausted`, logged at ERROR |
+
+This replaced at-most-once delivery, where the only record was written *after* the POST. Under that design any non-2xx lost the event outright, and anything queued when the container rotated vanished with no trace — so every deploy was a silent loss window. Persisting first means a restart now costs latency instead of data.
+
+**Receivers should still be idempotent.** The 5s timeout makes failure ambiguous: a handler that is slow but commits has processed an event Aegis recorded as failed, and will be sent it again. Deduplicate on `event_id`, which is stable across attempts.
+
+**Each attempt is signed with a fresh timestamp.** The body is byte-identical every time — the signature covers those exact bytes — but `X-Aegis-Timestamp` and the signature are recomputed per attempt. They have to be: receivers reject a stale timestamp (`WebhookVerifier` allows 300s), so a retry re-sent under the original timestamp would be refused by every correct receiver once the backoff exceeded their tolerance.
+
+**Retries need the sweep to be scheduled.** The immediate attempt happens in-process, but every *retry* is driven by `POST /api/admin/deliver-pending-webhooks`. Without that on a schedule, a failed delivery is never retried and the outbox grows silently:
+
+```bash
+curl -X POST http://localhost:5678/api/admin/deliver-pending-webhooks \
+  -H "X-API-Key: your-master-api-key"
+```
+
+```json
+{"attempted": 3, "delivered": 2, "retrying": 1, "exhausted": 0, "still_due": 0, "pruned": 0}
+```
+
+Run it about once a minute. It is safe to call by hand, and safe to run concurrently with itself: claims use `SELECT … FOR UPDATE SKIP LOCKED` and hold a 300s lease, so a sweep that is still working keeps its rows and an overlapping run takes disjoint ones rather than double-delivering. Each sweep is bounded to 10 deliveries — small deliberately, since a sweep POSTs serially and the batch has to finish inside the lease.
+
+The sweep also prunes `delivered` rows older than 30 days, since the outbox stores a full payload per webhook ever sent. `exhausted` rows are kept: they are the record of what a tenant never received.
+
+**Watch `still_due`.** Persistently non-zero means the backlog is growing faster than the schedule drains it. `exhausted` counts events given up on — those are permanently lost to the tenant and are logged at ERROR for alerting.
+
+#### Delivery log
+
+Every *attempt* writes a `webhook_events` row. `uuid` identifies the attempt; **`event_id` identifies the event and is stable across retries**, so it is what to grep by and what a tenant will quote. (They were the same column until retries existed, which is exactly why a second attempt could not be logged — it collided on the primary key. Rows predating retries carry `event_id = uuid`, so old rows stay findable the same way.)
+
+```sql
+-- everything that happened to one reported event
+SELECT attempt, response_status, success, created_at
+FROM webhook_events WHERE event_id = '...' ORDER BY attempt;
+
+-- what is still owed, and what was given up on
+SELECT status, count(*) FROM webhook_deliveries GROUP BY status;
+```
 
 ### Tenant API Key Gate
 

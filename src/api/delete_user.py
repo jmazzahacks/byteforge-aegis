@@ -69,7 +69,8 @@ def delete_user(user_id: str):
     deleted = db_manager.delete_user(user.uuid)
     if deleted:
         # Notify the tenant site so it can clean up mirror rows keyed on
-        # this user's uuid (background thread, non-blocking). `site` was
+        # this user's uuid. The outbox row is written here so the event
+        # survives a crash; only the POST is backgrounded. `site` was
         # already resolved above for the protection guard.
         webhook_payload = WebhookPayload(
             event_id=generate_uuid7(),

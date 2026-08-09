@@ -24,6 +24,7 @@ from byteforge_aegis_models import AuthToken, Site, UserRole
 from models.user import User
 import services.auth_service  # noqa: F401 - registers the module in sys.modules
 from services import email_service as email_service_module
+from services import webhook_service as webhook_service_module
 from services.email_service import EmailService
 from utils.uuid7 import generate_uuid7
 from app import create_app
@@ -70,6 +71,27 @@ def no_outbound_email(monkeypatch):
     # import hands back the object rather than the module.
     monkeypatch.setattr(
         sys.modules['services.auth_service'], 'email_dispatch', inline_dispatch
+    )
+
+
+class _InlinePool:
+    """Runs the immediate webhook attempt on the calling thread.
+
+    Production submits to a bounded pool so Mailgun-slow tenants cannot hold
+    a request slot. In tests that makes every assertion about a delivery a
+    race against a worker, and worse, an exception raised in a pool thread
+    lands on a Future nobody inspects — so a broken delivery path would look
+    like a passing test. Inline, failures surface where they happened.
+    """
+
+    def submit(self, fn, *args, **kwargs):
+        fn(*args, **kwargs)
+
+
+@pytest.fixture(autouse=True)
+def inline_webhook_delivery(monkeypatch):
+    monkeypatch.setattr(
+        webhook_service_module, '_DELIVERY_POOL', _InlinePool()
     )
 
 

@@ -133,18 +133,64 @@ CREATE INDEX idx_email_change_requests_token ON email_change_requests(token);
 CREATE INDEX idx_email_change_requests_user_uuid ON email_change_requests(user_uuid);
 CREATE INDEX idx_email_change_requests_site_uuid ON email_change_requests(site_uuid);
 
--- Webhook delivery log
+-- Webhooks a tenant is still owed. Written BEFORE the first HTTP attempt:
+-- delivery used to be a bare submit to an in-process thread pool, and the
+-- log row was written only after the POST, so anything queued or in flight
+-- when the container rotated vanished leaving no evidence it ever existed.
+-- Persisting first makes a restart cost latency instead of data.
+--
+-- event_id is the primary key, so re-raising the same event conflicts
+-- rather than queueing a second delivery.
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    event_id UUID PRIMARY KEY,
+    site_uuid UUID NOT NULL REFERENCES sites(uuid) ON DELETE CASCADE,
+    event_type VARCHAR(50) NOT NULL,
+    -- Stored verbatim: the HMAC is computed over these exact bytes, so
+    -- re-serializing could reorder keys and invalidate the signature.
+    payload TEXT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    -- Doubles as a lease. Claiming pushes this forward, so a worker that
+    -- dies mid-attempt releases the row when the lease expires — there is
+    -- no in-flight state to get stuck in and nothing to reap.
+    next_attempt_at BIGINT NOT NULL,
+    last_status INTEGER,
+    last_error TEXT,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+);
+
+-- The claim query's index: only pending rows are ever scanned for work.
+CREATE INDEX idx_webhook_deliveries_due
+    ON webhook_deliveries(next_attempt_at) WHERE status = 'pending';
+CREATE INDEX idx_webhook_deliveries_site_uuid ON webhook_deliveries(site_uuid);
+CREATE INDEX idx_webhook_deliveries_status ON webhook_deliveries(status);
+
+-- Webhook delivery log — one row per ATTEMPT.
+--
+-- uuid identifies the attempt; event_id identifies the event and is stable
+-- across retries. They were the same column before retries existed, which
+-- is precisely why a second attempt could not be logged: it collided on the
+-- primary key. event_id is what a tenant reports, so it carries the index.
 CREATE TABLE IF NOT EXISTS webhook_events (
     uuid UUID PRIMARY KEY,
+    -- Nullable on purpose. The pre-retry code inserts log rows without this
+    -- column, so NOT NULL would make every webhook log write fail under a
+    -- rollback to that image — silently, since the insert is wrapped in a
+    -- catch-all. Readers fall back to uuid, which is what a row written by
+    -- that code means anyway.
+    event_id UUID,
     site_uuid UUID NOT NULL REFERENCES sites(uuid) ON DELETE CASCADE,
     event_type VARCHAR(50) NOT NULL,
     payload TEXT NOT NULL,
     response_status INTEGER,
     response_body TEXT,
     success BOOLEAN NOT NULL DEFAULT FALSE,
+    attempt INTEGER NOT NULL DEFAULT 1,
     created_at BIGINT NOT NULL
 );
 
 CREATE INDEX idx_webhook_events_site_uuid ON webhook_events(site_uuid);
 CREATE INDEX idx_webhook_events_event_type ON webhook_events(event_type);
 CREATE INDEX idx_webhook_events_created_at ON webhook_events(created_at);
+CREATE INDEX idx_webhook_events_event_id ON webhook_events(event_id);

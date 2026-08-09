@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from typing import Generator, List, Optional
 from byteforge_aegis_models import WebhookEvent, UserRole
 from models.user import User
+from models.webhook_delivery import WebhookDelivery
 from config import get_config
 from utils.email_normalize import normalize_email
 from utils.token_hash import token_digest
@@ -1112,10 +1113,10 @@ class DatabaseManager:
         with self.get_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO webhook_events (uuid, site_uuid, event_type, payload, response_status, response_body, success, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO webhook_events (uuid, event_id, site_uuid, event_type, payload, response_status, response_body, success, attempt, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (event.uuid, event.site_uuid, event.event_type, event.payload, event.response_status, event.response_body, event.success, event.created_at)
+                (event.uuid, event.event_id or event.uuid, event.site_uuid, event.event_type, event.payload, event.response_status, event.response_body, event.success, event.attempt, event.created_at)
             )
         return event
 
@@ -1131,11 +1132,254 @@ class DatabaseManager:
         """
         with self.get_cursor() as cursor:
             cursor.execute(
-                "SELECT uuid, site_uuid, event_type, payload, response_status, response_body, success, created_at FROM webhook_events WHERE site_uuid = %s ORDER BY created_at DESC",
+                "SELECT uuid, event_id, site_uuid, event_type, payload, response_status, response_body, success, attempt, created_at FROM webhook_events WHERE site_uuid = %s ORDER BY created_at DESC",
                 (site_uuid,)
             )
             rows = cursor.fetchall()
             return [WebhookEvent.from_dict(row) for row in rows]
+
+    # WebhookDelivery operations (the outbox)
+    _DELIVERY_COLUMNS = (
+        'event_id, site_uuid, event_type, payload, status, attempts, '
+        'next_attempt_at, last_status, last_error, created_at, updated_at'
+    )
+
+    def create_webhook_delivery(self, delivery: WebhookDelivery) -> WebhookDelivery:
+        """
+        Record that a webhook is owed, before any attempt is made.
+
+        Args:
+            delivery: WebhookDelivery to persist
+
+        Returns:
+            WebhookDelivery: The persisted delivery
+        """
+        with self.get_cursor(commit=True) as cursor:
+            cursor.execute(
+                f"""
+                INSERT INTO webhook_deliveries ({self._DELIVERY_COLUMNS})
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (delivery.event_id, delivery.site_uuid, delivery.event_type,
+                 delivery.payload, delivery.status, delivery.attempts,
+                 delivery.next_attempt_at, delivery.last_status,
+                 delivery.last_error, delivery.created_at, delivery.updated_at)
+            )
+        return delivery
+
+    def claim_webhook_deliveries(
+        self, now: int, lease_seconds: int, limit: int
+    ) -> List[WebhookDelivery]:
+        """
+        Take ownership of up to `limit` deliveries that are due.
+
+        Claiming is a single UPDATE ... RETURNING rather than a SELECT FOR
+        UPDATE held across the attempt. That matters twice over: the HTTP
+        POST must not happen inside an open transaction (it would pin a
+        pooled connection for up to the request timeout, against a pgcat
+        pool in transaction mode), and SKIP LOCKED lets several workers
+        claim disjoint rows without blocking on each other.
+
+        The claim pushes next_attempt_at forward by lease_seconds, so the
+        lease IS the row's next due time. A worker that dies mid-attempt
+        therefore releases its rows by doing nothing at all — there is no
+        in-flight state to reap, at the cost of the row being retried no
+        sooner than the lease.
+
+        Claiming deliberately does NOT increment attempts; that happens in
+        finish_webhook_delivery, when an attempt has actually been made.
+        Counting at claim time meant a sweep killed partway through (a
+        rotation, a DB blip) burned attempts on rows it never POSTed, and
+        six such interruptions would retire an event as undeliverable
+        without it having been sent once.
+
+        Args:
+            now: Current unix time
+            lease_seconds: How long a claim holds a row
+            limit: Maximum rows to claim
+
+        Returns:
+            The claimed deliveries. `attempts` is the count BEFORE this one.
+        """
+        with self.get_cursor(commit=True) as cursor:
+            cursor.execute(
+                f"""
+                UPDATE webhook_deliveries
+                SET next_attempt_at = %s,
+                    updated_at = %s
+                WHERE event_id IN (
+                    SELECT event_id FROM webhook_deliveries
+                    WHERE status = 'pending' AND next_attempt_at <= %s
+                    ORDER BY next_attempt_at
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT %s
+                )
+                RETURNING {self._DELIVERY_COLUMNS}
+                """,
+                (now + lease_seconds, now, now, limit)
+            )
+            return [WebhookDelivery.from_dict(row) for row in cursor.fetchall()]
+
+    def claim_webhook_delivery(
+        self, event_id: str, now: int, lease_seconds: int
+    ) -> Optional[WebhookDelivery]:
+        """
+        Claim one specific delivery, for the immediate first attempt.
+
+        Returns None when the row is already claimed or no longer pending,
+        which is what keeps the inline attempt and a concurrent sweep from
+        both delivering the same event.
+
+        Args:
+            event_id: The delivery to claim
+            now: Current unix time
+            lease_seconds: How long the claim holds the row
+
+        Returns:
+            The claimed delivery, or None if it was not claimable.
+        """
+        with self.get_cursor(commit=True) as cursor:
+            cursor.execute(
+                f"""
+                UPDATE webhook_deliveries
+                SET next_attempt_at = %s,
+                    updated_at = %s
+                WHERE event_id = (
+                    SELECT event_id FROM webhook_deliveries
+                    WHERE event_id = %s AND status = 'pending'
+                        AND next_attempt_at <= %s
+                    FOR UPDATE SKIP LOCKED
+                )
+                RETURNING {self._DELIVERY_COLUMNS}
+                """,
+                (now + lease_seconds, now, event_id, now)
+            )
+            row = cursor.fetchone()
+            return WebhookDelivery.from_dict(row) if row else None
+
+    def finish_webhook_delivery(
+        self, event_id: str, status: str, now: int,
+        next_attempt_at: int, last_status: Optional[int],
+        last_error: Optional[str], held_lease: int
+    ) -> bool:
+        """
+        Record the outcome of an attempt, and count it.
+
+        Fenced on the lease this worker holds, not merely on the row still
+        being pending. Status alone is not enough: the common lost-lease
+        race is between two FAILING attempts, which leaves the row pending,
+        so a status-only guard would accept the loser's late write. It
+        would then double-count the attempt, overwrite the winner's
+        last_status/last_error with stale values, and drag next_attempt_at
+        backwards — making a further duplicate delivery more likely, which
+        is the opposite of what the guard is for.
+
+        Claiming sets next_attempt_at to the lease, and re-claiming moves
+        it, so an unchanged value is proof nobody else has taken the row.
+
+        Args:
+            event_id: The delivery that was attempted
+            status: 'pending' to retry later, 'delivered', or 'exhausted'
+            now: Current unix time
+            next_attempt_at: When to retry (ignored unless still pending)
+            last_status: HTTP status of this attempt, if there was one
+            last_error: Transport error from this attempt, if any
+            held_lease: The next_attempt_at value this worker's claim
+                returned. The write is refused if the row no longer carries
+                it.
+
+        Returns:
+            bool: True if this worker still owned the delivery and the
+                outcome was recorded; False if it had lost the race.
+        """
+        with self.get_cursor(commit=True) as cursor:
+            cursor.execute(
+                """
+                UPDATE webhook_deliveries
+                SET status = %s, next_attempt_at = %s, updated_at = %s,
+                    last_status = %s, last_error = %s,
+                    attempts = attempts + 1
+                WHERE event_id = %s AND status = 'pending'
+                    AND next_attempt_at = %s
+                """,
+                (status, next_attempt_at, now, last_status, last_error,
+                 event_id, held_lease)
+            )
+            return cursor.rowcount > 0
+
+    def find_webhook_delivery(self, event_id: str) -> Optional[WebhookDelivery]:
+        """
+        Look up a single delivery by the event id a tenant would report.
+
+        Args:
+            event_id: The event id from the payload
+
+        Returns:
+            The delivery, or None if unknown.
+        """
+        with self.get_cursor() as cursor:
+            cursor.execute(
+                f'SELECT {self._DELIVERY_COLUMNS} FROM webhook_deliveries WHERE event_id = %s',
+                (event_id,)
+            )
+            row = cursor.fetchone()
+            return WebhookDelivery.from_dict(row) if row else None
+
+    def delete_settled_webhook_deliveries(self, before: int, limit: int) -> int:
+        """
+        Drop old deliveries that nobody is waiting on any more.
+
+        The outbox holds a full JSON payload per webhook ever sent, so
+        without this it grows without bound. Only `delivered` rows are
+        removed: `exhausted` ones are the record of events a tenant never
+        received, which is exactly what someone will want to read later.
+        The per-attempt log in webhook_events is untouched.
+
+        ORDER BY plus SKIP LOCKED because sweeps overlap: two runs picking
+        the same rows in different orders is a deadlock, and a deadlock in
+        the prune would abort a sweep whose deliveries had all succeeded.
+
+        Args:
+            before: Delete rows settled before this unix time
+            limit: Ceiling on one pass, so a large backlog is spread over
+                several runs rather than one long-held lock
+
+        Returns:
+            int: Number of rows removed
+        """
+        with self.get_cursor(commit=True) as cursor:
+            cursor.execute(
+                """
+                DELETE FROM webhook_deliveries
+                WHERE event_id IN (
+                    SELECT event_id FROM webhook_deliveries
+                    WHERE status = 'delivered' AND updated_at < %s
+                    ORDER BY event_id
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT %s
+                )
+                """,
+                (before, limit)
+            )
+            return cursor.rowcount
+
+    def count_pending_webhook_deliveries(self, now: int) -> int:
+        """
+        How many deliveries are due right now. For the cron response.
+
+        Args:
+            now: Current unix time
+
+        Returns:
+            int: Count of pending, due deliveries
+        """
+        with self.get_cursor() as cursor:
+            cursor.execute(
+                """SELECT count(*) AS n FROM webhook_deliveries
+                   WHERE status = 'pending' AND next_attempt_at <= %s""",
+                (now,)
+            )
+            return cursor.fetchone()['n']
 
 
 # Global database manager instance
