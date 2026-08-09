@@ -112,10 +112,44 @@ PASSWORD_RESET_LIMIT = '3 per 15 minutes'
 # user list one address at a time and stay under the per-address limit.
 PASSWORD_RESET_SITE_LIMIT = '60 per hour'
 
+# Invitations. The per-address limit does less work here than it looks: the
+# first invite creates the user, so a second one for the same address gets a
+# 400 and sends no mail at all. Repeatedly mailing ONE person is therefore
+# self-limiting, and this only catches a burst racing itself.
+INVITE_LIMIT = '3 per 15 minutes'
+
+# The ceiling that actually matters. Abuse needs a leaked tenant key, and what
+# it buys is mail sent on the TENANT's Mailgun domain — their sending
+# reputation, not ours. Sized for a real onboarding batch rather than as a
+# tight control, because the alternative failure (a tenant importing a team
+# and hitting a wall halfway) is one we would rather not cause. Raise it if a
+# tenant legitimately needs more; it is a blast-radius cap, not a guess at
+# normal volume.
+INVITE_SITE_LIMIT = '100 per hour'
+
 
 def client_ip_unavailable() -> bool:
     """Exempt the per-IP limits when there is no trustworthy address."""
     return client_ip_key() is None
+
+
+def request_was_authenticated(response) -> bool:
+    """Charge a limit only to callers that got past the credential gate.
+
+    flask-limiter deducts in before_request by default, so a bucket is
+    consumed by requests that go on to fail authentication. On endpoints
+    keyed by site and email — neither of which is secret — that hands any
+    anonymous caller a denial-of-service: send three requests with a wrong
+    tenant key naming a victim site and address, and the tenant's own next
+    invitation to that address is refused for fifteen minutes. A hundred
+    such requests take out the site's invite capability for an hour.
+
+    Deferring the deduction to a response predicate closes that: a 401
+    costs the attacker nothing to send and costs the tenant nothing too.
+    The limit still binds every caller who actually holds the key, which
+    is the only caller who can make the endpoint do any work.
+    """
+    return response.status_code != 401
 
 
 # Per-IP ceilings. Set well above the per-account limits, because one address

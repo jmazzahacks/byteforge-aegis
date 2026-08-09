@@ -9,6 +9,8 @@ from byteforge_loki_logging import configure_logging
 from config import get_config
 from utils.cors_origins import allowed_origins
 from utils.rate_limit import (
+    INVITE_LIMIT,
+    INVITE_SITE_LIMIT,
     LOGIN_IP_LIMIT,
     LOGIN_LIMIT,
     PASSWORD_RESET_IP_LIMIT,
@@ -19,6 +21,7 @@ from utils.rate_limit import (
     client_ip_key,
     client_ip_unavailable,
     limiter,
+    request_was_authenticated,
     site_email_key,
     site_key,
 )
@@ -144,6 +147,7 @@ def create_app() -> Flask:
     from api.update_user import update_user_bp
     from api.admin_list_users import admin_list_users_bp
     from api.admin_register_user import admin_register_user_bp
+    from api.invite_user import invite_user_bp
     from api.me import me_bp
     from api.get_user import get_user_bp
     from api.cleanup_expired_tokens import cleanup_expired_tokens_bp
@@ -171,6 +175,7 @@ def create_app() -> Flask:
     app.register_blueprint(update_user_bp)
     app.register_blueprint(admin_list_users_bp)
     app.register_blueprint(admin_register_user_bp)
+    app.register_blueprint(invite_user_bp)
     app.register_blueprint(me_bp)
     app.register_blueprint(get_user_bp)
     app.register_blueprint(cleanup_expired_tokens_bp)
@@ -183,6 +188,15 @@ def create_app() -> Flask:
     limiter.limit(REGISTER_LIMIT, key_func=site_email_key)(register_bp)
     limiter.limit(PASSWORD_RESET_LIMIT, key_func=site_email_key)(request_password_reset_bp)
     limiter.limit(PASSWORD_RESET_SITE_LIMIT, key_func=site_key)(request_password_reset_bp)
+    # deduct_when: a 401 must not consume the tenant's own budget. Both keys
+    # here are derived from the request body, and neither site_id nor an
+    # email address is secret, so without this an anonymous caller could
+    # spend a tenant's invite allowance on their behalf. See
+    # request_was_authenticated.
+    limiter.limit(INVITE_LIMIT, key_func=site_email_key,
+                  deduct_when=request_was_authenticated)(invite_user_bp)
+    limiter.limit(INVITE_SITE_LIMIT, key_func=site_key,
+                  deduct_when=request_was_authenticated)(invite_user_bp)
 
     # Per-IP, on top of the per-account limits above. These catch a spread
     # attack — one guess each against many accounts, which stays under every
@@ -195,6 +209,13 @@ def create_app() -> Flask:
                   exempt_when=client_ip_unavailable)(register_bp)
     limiter.limit(PASSWORD_RESET_IP_LIMIT, key_func=client_ip_key,
                   exempt_when=client_ip_unavailable)(request_password_reset_bp)
+
+    # invite-user gets no per-IP limit. An authenticated invite arrives from
+    # the tenant's own backend, so every one of them shares a single address:
+    # a per-IP bucket would be a worse-named copy of INVITE_SITE_LIMIT that
+    # punishes a tenant for running one server. Unauthenticated callers are
+    # handled by deduct_when above rather than by a bucket — they never reach
+    # the handler, and now never charge anyone for trying.
 
     # Health check endpoint
     logger = logging.getLogger(__name__)

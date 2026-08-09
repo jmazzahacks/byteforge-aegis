@@ -5,7 +5,7 @@ from psycopg2 import errors
 
 from database import db_manager
 from byteforge_aegis_models import (
-    AuthToken, LoginResult, UserRole, VerificationResult,
+    AuthToken, LoginResult, Site, UserRole, VerificationResult,
     VerificationTokenStatus, WebhookEventType, WebhookPayload,
 )
 from models.user import User
@@ -104,10 +104,23 @@ class AuthService:
 
         user = db_manager.create_user(user)
 
-        # Create email verification token
-        verification_token = token_service.create_email_verification_token(site.uuid, user.uuid)
+        self._issue_verification_email(site, user)
 
-        # Send verification email (don't fail if email fails)
+        return user
+
+    def _issue_verification_email(self, site: Site, user: User) -> None:
+        """Mint a verification token for a user and mail them the link.
+
+        Failure to send is logged, not raised: the account already exists at
+        this point, and turning a Mailgun outage into a failed request would
+        leave the caller believing nothing happened when a row was written.
+        Recovery is a resend, which is why re-inviting a pending user is a
+        supported operation rather than a duplicate error.
+        """
+        verification_token = token_service.create_email_verification_token(
+            site.uuid, user.uuid
+        )
+
         try:
             email_dispatch(
                 email_service.send_verification_email,
@@ -123,7 +136,70 @@ class AuthService:
         except Exception as e:
             logger.error(f"Failed to send verification email: {str(e)}")
 
-        return user
+    def invite_user(self, site_uuid: str, email: str) -> User:
+        """
+        Invite a user onto a site on behalf of that site's own backend.
+
+        Differs from register_user in the one way that matters for an
+        invitation: re-inviting someone who has not accepted yet RESENDS,
+        rather than failing as a duplicate.
+
+        That case is not an edge case. A verification token lives 24 hours
+        (EMAIL_VERIFICATION_EXPIRATION) but the user row lives forever, so
+        an invitation that is ignored for a day — or whose mail is spam
+        filtered, or bounces — leaves a row that blocks every subsequent
+        attempt. Without a resend path the invitee is permanently locked
+        out: the reset-password flow does not set is_verified, so login
+        keeps refusing, and every repair endpoint is master-key gated. The
+        tenant would have to ask the Aegis operator to delete a row.
+
+        Resending is confined to users who are unmistakably pending — no
+        password set and not verified, which is the exact shape this method
+        creates. Anyone who has begun using the account is a real duplicate
+        and still raises.
+
+        Args:
+            site_uuid: The site to invite onto. Callers must pass the site
+                they authenticated as, never an identifier from the request.
+            email: The address to invite.
+
+        Returns:
+            User: The invited user, whether newly created or re-invited.
+
+        Raises:
+            ValueError: If the site does not exist, or the address already
+                belongs to an established account on it.
+        """
+        site = db_manager.find_site_by_uuid(site_uuid)
+        if not site:
+            raise ValueError("Site not found")
+
+        existing_user = db_manager.find_user_by_email(site.uuid, email)
+        if existing_user:
+            is_pending_invite = (
+                existing_user.password_hash is None
+                and not existing_user.is_verified
+            )
+            if not is_pending_invite:
+                raise ValueError("Email already registered for this site")
+
+            # Supersede the old link rather than leaving several live tokens
+            # for one account.
+            db_manager.delete_email_verification_tokens_by_user(existing_user.uuid)
+            self._issue_verification_email(site, existing_user)
+            logger.info(
+                "Re-invited pending user %s on site %s",
+                existing_user.uuid, site.uuid
+            )
+            return existing_user
+
+        return self.register_user(
+            site_uuid=site.uuid,
+            email=email,
+            password=None,
+            role=UserRole.USER,
+            is_admin_registration=True,
+        )
 
     def login(self, site_uuid: str, email: str, password: str) -> LoginResult:
         """

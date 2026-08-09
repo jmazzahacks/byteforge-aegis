@@ -173,7 +173,9 @@ curl -X PUT http://localhost:5678/api/sites/{site_id} \
   -d '{"allow_self_registration": false}'
 ```
 
-When disabled, `/api/auth/register` returns an error. Admin registration via `/api/admin/register` is unaffected.
+When disabled, `/api/auth/register` returns an error. Admin registration via `/api/admin/register`, and tenant-key invitations via `/api/auth/invite-user`, are unaffected.
+
+Disabling self-registration is the normal setting for an invite-only site: your backend invites people deliberately with `/api/auth/invite-user`, and nobody can sign themselves up.
 
 **Rotate the tenant API key:**
 ```bash
@@ -317,6 +319,7 @@ To prevent abuse (bot-driven Mailgun spend, email-bombing, DB pollution), all **
 **Gated endpoints (require `X-Tenant-Api-Key`):**
 
 - `POST /api/auth/register`
+- `POST /api/auth/invite-user`
 - `POST /api/auth/login`
 - `POST /api/auth/request-password-reset`
 - `POST /api/auth/reset-password`
@@ -435,6 +438,45 @@ curl -X POST http://localhost:5678/api/auth/register \
 Both flows send a verification email. The difference:
 - **With password**: User clicks verification link → email verified → can login immediately
 - **Without password**: User clicks verification link → sets password → email verified → can login
+
+#### Invite a User (Tenant API Key)
+
+For an integrating backend adding a user to **its own site**. Authorized by the tenant API key alone — no master key, no bearer token.
+
+```bash
+curl -X POST http://localhost:5678/api/auth/invite-user \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Api-Key: your-tenant-api-key" \
+  -d '{
+    "site_id": "0191e1a0-5e2f-7c3a-9d4b-1f2e3a4b5c6d",
+    "email": "invitee@example.com"
+  }'
+```
+
+Returns `201` with the created user, or `400 {"error": "Email already registered for this site"}` if the address belongs to an established account.
+
+**Re-inviting resends.** If the address is a still-pending invitation — no password set, not yet verified — this issues a fresh link, invalidates the previous one, and returns the same user with `201`. That is not a convenience: a verification token expires after 24 hours but the user row does not, so without it an invitation that was ignored for a day, spam-filtered, or bounced would block every retry and lock the invitee out permanently (password reset does not set `is_verified`, so login keeps refusing, and every repair endpoint needs the master key). Accounts that anyone has begun using are never resent to.
+
+The authorization argument: the decision that *this person may invite that person* belongs to the tenant, who makes it against their own session before calling. Aegis is only told that a holder of this site's key asked for a user on this site — which is exactly what the tenant key attests, and it cannot attest it for any other site. `site_id` must be the key's own site; anything else is a uniform `401`.
+
+**How it differs from `/api/auth/register`:**
+
+| | `/api/auth/invite-user` | `/api/auth/register` |
+|---|---|---|
+| Needs `allow_self_registration` | no | **yes** |
+| Established duplicate | `400`, a real error | `201`, creates nothing |
+| Pending invitation | `201`, resends the link | `201`, creates nothing |
+| Response | the created user | generic message |
+| Password accepted | no | optional |
+| Role settable | no, always `user` | no |
+
+`register` is enumeration-safe by design: a stranger at a public signup form must not be able to learn whether an address is registered. That protects nothing when the caller already owns the site's whole user list, and it costs the caller any way to know whether the invite landed — which is why this endpoint exists.
+
+**`role` is deliberately not accepted.** A tenant key is a service credential held by an integrating backend; if a leaked one could mint Aegis console admins, the leak would escalate to site administration. Invited users are always ordinary users. Sending `role` is rejected outright rather than ignored.
+
+**No webhook fires at invite time.** `user.verified` fires when the invitee sets their password, and only then. An invitation that is never accepted produces no event at all, so callers must expire their own pending invitations.
+
+Rate limits: 3 per 15 minutes per address, 100 per hour per site. Requests that fail the tenant-key gate are not charged to either bucket, so an anonymous caller cannot spend a tenant's allowance by naming their site.
 
 #### Admin User Registration
 

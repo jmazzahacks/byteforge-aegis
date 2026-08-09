@@ -843,6 +843,26 @@ class DatabaseManager:
             cursor.execute("DELETE FROM password_reset_tokens WHERE user_uuid = %s", (user_uuid,))
             return cursor.rowcount
 
+    def delete_email_verification_tokens_by_user(self, user_uuid: str) -> int:
+        """
+        Delete all email verification tokens for a user.
+
+        Used when re-issuing an invitation, so the superseded link stops
+        working rather than leaving several live tokens for one account.
+
+        Args:
+            user_uuid: The user's UUID
+
+        Returns:
+            int: Number of tokens deleted
+        """
+        with self.get_cursor(commit=True) as cursor:
+            cursor.execute(
+                "DELETE FROM email_verification_tokens WHERE user_uuid = %s",
+                (user_uuid,)
+            )
+            return cursor.rowcount
+
     def delete_email_change_requests_by_user(self, user_uuid: str) -> int:
         """
         Delete all pending email change requests for a user.

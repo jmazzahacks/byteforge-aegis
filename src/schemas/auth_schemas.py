@@ -22,6 +22,23 @@ class AdminRegisterRequestSchema(Schema):
     role = fields.String(validate=validate.OneOf(['user', 'admin']))
 
 
+class InviteUserSchema(Schema):
+    """Schema for a tenant backend inviting a user onto its own site.
+
+    site_id is present only so the tenant-key middleware can resolve the
+    site to authenticate against; the handler authorizes against the site
+    that key actually belongs to, never against this value.
+
+    Deliberately no `role`: the tenant key is a service credential held by
+    an integrating backend, and letting it mint Aegis console admins would
+    turn a leaked tenant key into site administration. Deliberately no
+    `password`: an invited user sets their own via the emailed link, so no
+    inviter ever knows the invitee's credential.
+    """
+    site_id = SiteIdentifierField(required=True)
+    email = fields.Email(required=True, validate=validate.Length(max=255))
+
+
 class TenantAdminRegisterSchema(Schema):
     """Schema for tenant admin user registration (site_id derived from admin's token)"""
     email = fields.Email(required=True, validate=validate.Length(max=255))
