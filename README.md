@@ -189,6 +189,21 @@ The response includes the new `tenant_api_key`. Tenant operators must update the
 
 ### User Management
 
+#### Email identity
+
+**One mailbox is one account, per site.** This is the contract a tenant keying on email needs, so it is stated rather than left to be inferred:
+
+- **Addresses are case-insensitive.** `Bob@Example.com` and `bob@example.com` are the *same* identity. Registering, inviting, or logging in with any capitalisation resolves to the one account.
+- **Addresses are stored lowercased and trimmed.** Every write path normalizes, so whatever a user typed, the canonical form is what is stored — and what you receive in a webhook payload or an API response. You will never be sent a mixed-case address.
+- **Identity is scoped to the site.** `UNIQUE(site_uuid, email)` — the same address on two different sites is two unrelated accounts, with different user UUIDs. There is no global user.
+- **A case variant is a duplicate, not a new account.** Self-registration returns success-shaped output without creating anything (deliberately — the response must not reveal whether an address exists); `POST /api/auth/invite-user` returns **400** `Email already registered for this site`. Neither creates a second row.
+
+This is deliberate, and it is a security property rather than a convenience. Matching used to be exact, so `Victim@example.com` and `victim@example.com` were two accounts delivering to one real mailbox: an attacker could register a case variant of an address that already existed, registration's duplicate check would miss it, and a downstream tenant app keying on email would likely conflate the two. It also meant a user who typed their own address with different capitalisation got "invalid credentials" on login and a silent no-op on password reset.
+
+> **Enforcement is in application code, not a database constraint.** `UNIQUE(site_uuid, email)` is a plain case-sensitive btree; the guarantee holds because every write normalizes before it reaches the column. It is safe to rely on for anything reached through the API or a webhook, which is every consumer path.
+
+> **If you are adding a `UNIQUE (LOWER(email))` index on your side, pre-flight your own historical rows.** Normalization shipped **2026-07-29**; addresses Aegis handed out before that date were passed through as typed. Aegis's own data was checked at the time and had zero mixed-case rows, so nothing further arrived from us — but rows *you* created earlier may still carry variants, and the index will fail to build on them.
+
 #### Deletion Protection
 
 Two levels, both defaulting to off:
@@ -242,6 +257,14 @@ When a site has a `webhook_url` configured, Aegis sends signed HTTP POST notific
 - **`user.deleted`** - Fired when a user is deleted
 
 This allows tenant sites to initialize users in their own systems after verification, and clean up mirror records when a user is removed.
+
+**`user.verified` is the only signal that an account became usable, and email verification is the only thing that sets `is_verified`.** Both halves matter if you provision from it:
+
+- No other endpoint flips `is_verified` to true — notably **password reset does not**, so a user who resets their password without ever verifying stays unverified and cannot log in.
+- The event fires once, on the transition. It is not re-sent when a verified user logs in, changes their password, or changes their email.
+- An invited user who never clicks the link produces **no event at all**. The account row exists (unverified, no password) but nothing was delivered, so absence of a `user.verified` is not evidence that an invite was never issued.
+
+That makes `user.verified` a sound trigger for "create this user in my system" — provided you also treat it as *at-least-once* (see delivery semantics below) and dedupe on `event_id`.
 
 #### Webhook Payload
 
@@ -312,7 +335,17 @@ curl -X PUT http://localhost:5678/api/sites/{site_id} \
 
 #### Delivery semantics
 
-**Delivery is durable and retried.** An event is written to the `webhook_deliveries` outbox *before* any HTTP attempt, then attempted immediately on a background thread. Delivery never blocks the triggering request, and a failed delivery never affects the user-facing operation.
+> **These semantics are versioned.** Delivery changed shape in **v65**; before it, the behaviour described here was the opposite — one attempt, no retry, so any non-2xx lost the event. If you are writing a handler that depends on a specific guarantee, pin your expectation to a backend version rather than to "what the docs said".
+>
+> `GET /api/health` reports the running version (v66+), so this is checkable rather than something you have to ask about:
+>
+> ```json
+> {"status": "healthy", "service": "auth-service", "version": "66"}
+> ```
+>
+> No `version` field means a backend older than v66. `"unknown"` means the build omitted the version file — treat it as unconfirmed.
+
+**Delivery is durable and retried (backend v65+).** An event is written to the `webhook_deliveries` outbox *before* any HTTP attempt, then attempted immediately on a background thread. Delivery never blocks the triggering request, and a failed delivery never affects the user-facing operation.
 
 | | |
 |---|---|
@@ -656,7 +689,12 @@ ByteForge Aegis includes production-ready Docker configuration with Gunicorn, au
 4. **Check health**
    ```bash
    curl http://localhost:5678/api/health
+   # {"status": "healthy", "service": "auth-service", "version": "66"}
    ```
+
+   `version` is the backend version, matching the image tag. It reads the
+   `VERSION` file that `build-publish.sh` stamps, and reports `"unknown"`
+   when that file is absent (e.g. a bare `docker build` outside the script).
 
 5. **View logs**
    ```bash

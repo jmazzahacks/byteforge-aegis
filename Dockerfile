@@ -40,6 +40,18 @@ COPY database/ ./database/
 COPY admin_scripts/ ./admin_scripts/
 COPY migrate_scripts/ ./migrate_scripts/
 
+# The version this image reports on /api/health. build-publish.sh writes
+# VERSION before it builds, so the number baked in here matches the image
+# tag — tenants need it to know which webhook semantics are live.
+#
+# requirements.txt is an anchor, not a second copy that matters: VERSION is
+# gitignored, so a fresh clone does not have one, and a bare `COPY VERSION`
+# would fail the build outright. A glob is allowed to match nothing only
+# when some other source in the same COPY does match, so pairing it with a
+# file that always exists makes the version optional — the app then reports
+# "unknown" rather than the image failing to build.
+COPY requirements.txt VERSION* ./
+
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash appuser && \
     chown -R appuser:appuser /app

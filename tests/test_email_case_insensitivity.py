@@ -97,6 +97,38 @@ def test_login_works_with_different_capitalisation(test_client, sample_site, exi
     assert response.status_code == 200
 
 
+def test_invite_rejects_a_case_variant_of_an_existing_account(sample_site, existing_user):
+    """Invites go through the same normalized lookup as registration.
+
+    A consumer keying on email asked whether inviting Bob@Example.com when
+    bob@example.com exists creates a second account. It must not: the
+    duplicate check normalizes, so the variant resolves to the existing
+    verified user and is refused rather than shadowing them.
+    """
+    with pytest.raises(ValueError, match='already registered'):
+        auth_service.invite_user(
+            site_uuid=sample_site.uuid,
+            email='Victim@Test.Example.COM',
+        )
+
+    with db_manager.get_cursor() as cursor:
+        cursor.execute(
+            "SELECT count(*) AS n FROM users WHERE site_uuid = %s AND lower(email) = %s",
+            (sample_site.uuid, 'victim@test.example.com')
+        )
+        assert cursor.fetchone()['n'] == 1
+
+
+def test_invite_stores_a_new_address_lowercased(sample_site):
+    """What the tenant later receives in user.verified is the canonical form."""
+    invited = auth_service.invite_user(
+        site_uuid=sample_site.uuid,
+        email='Fresh.Invite@Test.Example.COM',
+    )
+
+    assert invited.email == 'fresh.invite@test.example.com'
+
+
 def test_normalize_email_helper():
     assert normalize_email('  User@Example.COM ') == 'user@example.com'
     assert normalize_email('already@lower.com') == 'already@lower.com'

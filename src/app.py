@@ -25,6 +25,7 @@ from utils.rate_limit import (
     site_email_key,
     site_key,
 )
+from utils.version import get_version
 
 # Requests at or above this take a WARNING rather than INFO, so slow queries
 # surface without having to grep every access line.
@@ -225,7 +226,11 @@ def create_app() -> Flask:
     @app.route('/api/health', methods=['GET'])
     def health_check():
         logger.info('Health check', extra={'route': '/api/health'})
-        return {'status': 'healthy', 'service': 'auth-service'}, 200
+        return {
+            'status': 'healthy',
+            'service': 'auth-service',
+            'version': get_version(),
+        }, 200
 
     # Access logging. Until this existed we logged nothing but health checks,
     # so a latency question about our own service could only be answered by
