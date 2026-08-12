@@ -2,6 +2,7 @@ import time
 from unittest.mock import MagicMock
 
 import psycopg2
+import psycopg2.pool
 import pytest
 
 from database import db_manager, DatabaseManager, MAX_HEALTH_RETRIES
@@ -344,6 +345,113 @@ def _dead_conn():
     # psycopg2 sets `closed` to non-zero when the socket is actually broken.
     conn.closed = 2
     return conn
+
+
+def _dead_conn_bare_database_error():
+    """A socket that died without psycopg2 flipping `closed`.
+
+    psycopg2 detects EOF via PQgetResult() returning NULL and raises the
+    bare DatabaseError parent — not OperationalError — before PQstatus
+    updates `conn.closed`. So the conn looks alive by every signal the
+    old classifier consulted, while being entirely dead.
+    """
+    conn = MagicMock()
+    conn.cursor.return_value.execute.side_effect = psycopg2.DatabaseError(
+        "server closed the connection unexpectedly"
+    )
+    conn.closed = 0
+    return conn
+
+
+def test_bare_database_error_on_check_alive_retries_and_recovers():
+    """The pre-ping arm must not classify — a dead conn can raise anything.
+
+    Direct regression: the old arm asked _is_dead_conn_error, which scored
+    a bare DatabaseError on a closed==0 conn as alive, and re-raised it to
+    the caller as a 500 instead of retrying onto a healthy conn.
+    """
+    dead, alive = _dead_conn_bare_database_error(), _alive_conn()
+    db = _make_db_with_mocked_pool([dead, alive])
+
+    with db.get_connection() as conn:
+        assert conn is alive
+
+    db.connection_pool.putconn.assert_any_call(dead, close=True)
+
+
+def test_check_alive_generic_exception_treated_as_dead():
+    """`SELECT 1` has no legitimate non-dead failure mode.
+
+    Future-proofs against the classifier creeping back in: whatever psycopg2
+    raises next from a dying socket, the pre-ping arm discards and retries
+    rather than surfacing it to the caller.
+    """
+    broken = MagicMock()
+    broken.cursor.return_value.execute.side_effect = RuntimeError("something novel")
+    broken.closed = 0
+    alive = _alive_conn()
+    db = _make_db_with_mocked_pool([broken, alive])
+
+    with db.get_connection() as conn:
+        assert conn is alive
+
+    db.connection_pool.putconn.assert_any_call(broken, close=True)
+
+
+def test_pool_getconn_operational_error_retries_and_recovers():
+    """The getconn arm still classifies, and a dead-socket error retries.
+
+    conn is None at this point, which _is_dead_conn_error treats as dead for
+    an OperationalError — there is no conn whose `closed` could say otherwise.
+    """
+    alive = _alive_conn()
+    db = _make_db_with_mocked_pool([])
+    db.connection_pool.getconn.side_effect = [
+        psycopg2.OperationalError("could not connect"),
+        alive,
+    ]
+
+    with db.get_connection() as conn:
+        assert conn is alive
+
+
+def test_pool_getconn_non_dead_error_propagates():
+    """Unlike pre-ping, a getconn failure that is not a dead socket must
+    propagate: retrying an exhausted pool just repeats the same refusal."""
+    db = _make_db_with_mocked_pool([])
+    db.connection_pool.getconn.side_effect = psycopg2.pool.PoolError("exhausted")
+
+    with pytest.raises(psycopg2.pool.PoolError):
+        with db.get_connection():
+            pass
+
+    assert db.connection_pool.getconn.call_count == 1
+
+
+def test_keyboard_interrupt_during_check_alive_propagates_without_leaking_conn():
+    """A signal during the pre-ping must propagate AND hand the conn back.
+
+    Two properties, and the second is the one that bites. The conn is already
+    checked out when `_check_alive` runs, so an exception that escapes without
+    a putback strands a pool slot permanently. A gevent/eventlet Timeout is a
+    BaseException and fires exactly where a pre-ping on a stale socket blocks,
+    so `maxconn` such events wedge the worker with PoolError until restart —
+    which the getconn arm then correctly declines to retry.
+
+    KeyboardInterrupt stands in for that whole family here because it needs no
+    greenlet runtime to provoke.
+    """
+    conn = MagicMock()
+    conn.cursor.return_value.execute.side_effect = KeyboardInterrupt()
+    conn.closed = 0
+    db = _make_db_with_mocked_pool([conn])
+
+    with pytest.raises(KeyboardInterrupt):
+        with db.get_connection():
+            pass
+
+    # Not merely "propagates" — the slot must go back, discarded.
+    db.connection_pool.putconn.assert_called_once_with(conn, close=True)
 
 
 def test_dead_conn_on_first_checkout_retries_and_recovers():

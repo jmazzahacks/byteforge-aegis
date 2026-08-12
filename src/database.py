@@ -214,21 +214,56 @@ class DatabaseManager:
         last_err = None
         for attempt in range(MAX_HEALTH_RETRIES):
             conn = None
+            # Checkout and pre-ping are separate arms because they fail for
+            # different reasons and only one of them can be classified.
             try:
                 conn = self.connection_pool.getconn()
-                self._check_alive(conn)
-            except BaseException as e:
-                # Checkout/probe failed. Always discard with close=True —
-                # we don't trust a conn that failed pre-ping. Retry only
-                # if the error means "dead socket"; otherwise propagate.
-                dead = self._is_dead_conn_error(conn, e)
-                self._safe_putback(conn, close=True)
-                if dead:
+            except Exception as e:
+                # Nothing to hand back: the assignment never ran, so conn is
+                # still None and there is no socket to discard. That also
+                # means `closed` cannot be consulted here, so this reduces to
+                # "an OperationalError means the pool could not reach the
+                # database — retry; anything else, such as
+                # PoolError('exhausted'), is a condition retrying would only
+                # repeat — propagate."
+                if self._is_dead_conn_error(None, e):
                     last_err = e
-                    logger.warning("DB checkout pre-ping failed (attempt %s/%s): %s",
+                    logger.warning("DB pool getconn failed (attempt %s/%s): %s",
                                    attempt + 1, MAX_HEALTH_RETRIES, e)
                     continue
                 raise
+
+            try:
+                self._check_alive(conn)
+            except BaseException as e:
+                # BaseException, not Exception: by this point the conn is
+                # checked OUT of the pool, so whatever unwinds through here
+                # must hand it back first. A gevent/eventlet Timeout — or a
+                # Ctrl-C — derives from BaseException and fires exactly where
+                # a pre-ping on a stale socket blocks, so catching only
+                # Exception would strand one pooled slot per occurrence until
+                # the pool is exhausted and the worker wedges. Discard first,
+                # then decide; the mid-flight handler below is BaseException
+                # for the same reason.
+                self._safe_putback(conn, close=True)
+                if not isinstance(e, Exception):
+                    raise
+
+                # `SELECT 1` has no legitimate non-dead failure mode, so the
+                # exception class is NOT consulted beyond that — any ordinary
+                # exception means retry. Classifying this arm is what broke:
+                # psycopg2 can raise the bare DatabaseError parent (not
+                # OperationalError) when it detects EOF via PQgetResult()
+                # returning NULL before PQstatus flips conn.closed, so
+                # _is_dead_conn_error scored a genuinely dead socket as alive
+                # and the error escaped as a raw 500 — a broken login for the
+                # end user. Retrying a hypothetical live-conn failure costs
+                # two wasted pre-pings; misclassifying a dead one costs a
+                # request.
+                last_err = e
+                logger.warning("DB checkout pre-ping failed (attempt %s/%s): %s",
+                               attempt + 1, MAX_HEALTH_RETRIES, e)
+                continue
 
             # Healthy conn — yield it. Mid-flight handling decides
             # discard-vs-recycle without trusting the exception class
