@@ -166,17 +166,46 @@ class DatabaseManager:
         Decide whether `exc` indicates the underlying socket is dead.
 
         InterfaceError → always dead (operations on a closed conn/cursor).
+        Any DatabaseError with conn is None → dead. This is the refill
+            path: `pool.getconn()` calling `psycopg2.connect()` on an
+            empty pool, where the only failures possible are
+            connection-setup failures. psycopg2 can raise the bare
+            DatabaseError parent there for the same reason the pre-ping
+            can — EOF seen via PQgetResult() returning NULL before
+            PQstatus updates anything. DatabaseError is otherwise far too
+            broad (IntegrityError, ProgrammingError and DataError all
+            inherit from it), which is why this is gated on conn is None:
+            with a conn in hand we are running app SQL, not connecting.
+            psycopg2.pool.PoolError is NOT a DatabaseError subclass, so
+            pool exhaustion still propagates rather than being retried.
         OperationalError → ambiguous: it's the parent class of
             SerializationFailure, DeadlockDetected, QueryCanceled, and
             LockNotAvailable, all of which fire on perfectly healthy
             conns. Use `conn.closed` as the discriminator: psycopg2 sets
             it to non-zero only when the socket is actually broken.
         Anything else → not a dead-conn signal.
+
+        NOTE ON THE conn-NON-None ARMS: they have no production caller.
+        The only call site passes a literal None (the getconn arm), and
+        the mid-flight handler classifies against the _DEAD_CONN_ERRORS
+        tuple instead of calling this. So in practice every live call
+        takes the `conn is None` branch above, and the OperationalError
+        arm below is exercised only by its unit test. It is kept, rather
+        than collapsing this to `_is_dead_conn_error(exc)`, so the
+        function still matches the postgres-setup skill template that
+        cross-repo sweeps are written against — this file has twice been
+        patched from a template diff (tickets b171150c, a99a0070), and
+        drifting the signature would make the next such diff not apply.
+        Do not read the arms below as evidence that a conn-bearing caller
+        exists; misreading this function is what produced the original
+        bare-DatabaseError regression.
         """
         if isinstance(exc, psycopg2.InterfaceError):
             return True
+        if conn is None and isinstance(exc, psycopg2.DatabaseError):
+            return True
         if isinstance(exc, psycopg2.OperationalError):
-            return conn is None or getattr(conn, "closed", 0) != 0
+            return getattr(conn, "closed", 0) != 0
         return False
 
     def _safe_putback(self, conn: Optional[connection], close: bool) -> None:
@@ -222,10 +251,11 @@ class DatabaseManager:
                 # Nothing to hand back: the assignment never ran, so conn is
                 # still None and there is no socket to discard. That also
                 # means `closed` cannot be consulted here, so this reduces to
-                # "an OperationalError means the pool could not reach the
+                # "any DatabaseError means the pool could not reach the
                 # database — retry; anything else, such as
-                # PoolError('exhausted'), is a condition retrying would only
-                # repeat — propagate."
+                # PoolError('exhausted') which is NOT a DatabaseError
+                # subclass, is a condition retrying would only repeat —
+                # propagate."
                 if self._is_dead_conn_error(None, e):
                     last_err = e
                     logger.warning("DB pool getconn failed (attempt %s/%s): %s",

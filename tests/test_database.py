@@ -401,8 +401,11 @@ def test_check_alive_generic_exception_treated_as_dead():
 def test_pool_getconn_operational_error_retries_and_recovers():
     """The getconn arm still classifies, and a dead-socket error retries.
 
-    conn is None at this point, which _is_dead_conn_error treats as dead for
-    an OperationalError — there is no conn whose `closed` could say otherwise.
+    conn is None at this point, so _is_dead_conn_error scores this dead via
+    its DatabaseError branch (OperationalError is a DatabaseError subclass)
+    — there is no conn whose `closed` could say otherwise. This test also
+    guards that subsumption: it passed identically before the branch was
+    widened, so a regression there shows up here.
     """
     alive = _alive_conn()
     db = _make_db_with_mocked_pool([])
@@ -426,6 +429,56 @@ def test_pool_getconn_non_dead_error_propagates():
             pass
 
     assert db.connection_pool.getconn.call_count == 1
+
+
+def test_pool_getconn_bare_database_error_retries_and_recovers():
+    """The refill path can raise the bare DatabaseError parent too.
+
+    Same PQgetResult-before-PQstatus cause as the pre-ping regression above,
+    one layer out: on an empty pool, getconn calls psycopg2.connect(), and a
+    connection-setup failure there can surface as bare DatabaseError rather
+    than OperationalError. The classifier used to score that as not-dead and
+    propagate it as a 500 on what is a retryable condition.
+    """
+    alive = _alive_conn()
+    db = _make_db_with_mocked_pool([])
+    db.connection_pool.getconn.side_effect = [
+        psycopg2.DatabaseError("server closed the connection unexpectedly"),
+        alive,
+    ]
+
+    with db.get_connection() as conn:
+        assert conn is alive
+
+    assert db.connection_pool.getconn.call_count == 2
+
+
+def test_database_error_with_a_conn_in_hand_is_not_dead():
+    """The conn-is-None gate is what keeps the DatabaseError branch safe.
+
+    DatabaseError is the parent of IntegrityError, ProgrammingError and
+    DataError — ordinary app-SQL failures on a perfectly healthy socket.
+    Only the refill path, where there is no conn yet, can be assumed to be
+    a connection failure.
+
+    To be clear about what this does and does not protect: no production
+    caller passes a conn to this function today (the getconn arm passes a
+    literal None, and the mid-flight handler classifies against the
+    _DEAD_CONN_ERRORS tuple instead), so an IntegrityError on a healthy
+    conn is not currently at risk of being scored dead by anything here.
+    This locks the static contract so that a future conn-bearing caller —
+    or a sweep that widens the branch by dropping the gate — cannot
+    quietly start recycling good conns on every unique-violation.
+    """
+    healthy = MagicMock()
+    healthy.closed = 0
+
+    assert DatabaseManager._is_dead_conn_error(
+        None, psycopg2.DatabaseError("could not connect")
+    ) is True
+    assert DatabaseManager._is_dead_conn_error(
+        healthy, psycopg2.IntegrityError("duplicate key")
+    ) is False
 
 
 def test_keyboard_interrupt_during_check_alive_propagates_without_leaking_conn():
