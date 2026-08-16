@@ -12,6 +12,7 @@ from services.webhook_service import webhook_service
 from services.tenant_key_service import tenant_key_service
 from utils.validators import validate_request
 from utils.api_key_middleware import require_master_api_key
+from utils.uuid7 import generate_uuid7
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ def create_site(validated_data):
     webhook_secret = webhook_service.generate_webhook_secret() if webhook_url else None
 
     site = Site(
+        uuid=generate_uuid7(),
         name=validated_data['name'],
         domain=validated_data['domain'],
         frontend_url=validated_data['frontend_url'],
