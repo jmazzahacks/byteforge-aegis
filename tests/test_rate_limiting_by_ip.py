@@ -8,14 +8,13 @@ were, the test would pass while proving nothing.
 """
 import pytest
 
-from utils.rate_limit import CLIENT_IP_HEADER, LOGIN_IP_LIMIT, PASSWORD_RESET_IP_LIMIT, limiter
+from utils.rate_limit import CLIENT_IP_HEADER, PASSWORD_RESET_IP_LIMIT, limiter
 
 TENANT_HEADER = 'X-Tenant-Api-Key'
 ATTACKER_IP = '203.0.113.7'
 OTHER_IP = '198.51.100.9'
 
-# Parsed from the configured limits so the tests cannot drift away from them.
-LOGIN_IP_MAX = int(LOGIN_IP_LIMIT.split()[0])
+# Parsed from the configured limit so the tests cannot drift away from it.
 RESET_IP_MAX = int(PASSWORD_RESET_IP_LIMIT.split()[0])
 
 # The spread-attack tests drive PASSWORD RESET rather than LOGIN. Two
@@ -95,21 +94,16 @@ def test_no_ip_header_means_no_ip_limiting(test_client, sample_site):
         'they are sharing a bucket, which is the failure this avoids'
     )
 
-
-def test_per_account_limit_still_applies_independently(test_client, sample_site):
-    """The two keyings are independent; the account limit is much tighter."""
-    statuses = []
-    for _ in range(12):
-        response = test_client.post(
-            '/api/auth/login',
-            headers={TENANT_HEADER: sample_site.tenant_api_key,
-                     CLIENT_IP_HEADER: ATTACKER_IP},
-            json={'site_id': sample_site.uuid,
-                  'email': 'one-victim@test.example.com',
-                  'password': 'wrong_password_9'},
-        )
-        statuses.append(response.status_code)
-
-    # 10/minute per account, well under the 60/minute per IP.
-    assert 429 in statuses
-    assert statuses.index(429) < LOGIN_IP_MAX
+# Deleted 2026-08-16: test_per_account_limit_still_applies_independently.
+# It drove 12 logins against the 10/minute PER-ACCOUNT limit with the client-IP
+# header set, and it was the only flaky test in the suite — fixed windows mean a
+# minute boundary splitting the run leaves <=10 on each side and no 429 fires.
+# It went rather than getting propped up because it earned nothing:
+# test_rate_limiting.py::test_repeated_login_attempts_are_eventually_blocked
+# already asserts the account limit fires; the only increment was "it still
+# fires when the IP header is present", which would require flask-limiter to
+# apply one @limiter.limit decorator and skip another based on inbound headers.
+# Its second assertion (index(429) < LOGIN_IP_MAX) compared an index into a
+# 12-element list against 60 — unfailable, and the tell that it wasn't load
+# bearing. It was the only reader of LOGIN_IP_MAX/LOGIN_IP_LIMIT, both removed
+# with it; the remaining tests are all keyed off the reset limit.

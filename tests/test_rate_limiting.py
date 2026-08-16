@@ -33,8 +33,16 @@ def _login(client, site, email='victim@test.example.com', password='wrong_passwo
 
 
 def test_repeated_login_attempts_are_eventually_blocked(test_client, sample_site):
-    """Credential stuffing against one account must stop being free."""
-    statuses = [_login(test_client, sample_site).status_code for _ in range(15)]
+    """Credential stuffing against one account must stop being free.
+
+    21 requests, not 15, and the count is load bearing. flask-limiter uses
+    fixed windows, so a minute boundary landing mid-run splits the attempts
+    into two counters. Against the 10/minute account limit a 429 needs 11 in
+    ONE window, and 15 attempts split as anything from 5+10 to 10+5 leaves
+    both sides short — the limit never fires and the test fails having found
+    no bug. At 21 no split can leave both sides under 11.
+    """
+    statuses = [_login(test_client, sample_site).status_code for _ in range(21)]
 
     assert 429 in statuses, f"no request was rate limited: {statuses}"
 
