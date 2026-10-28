@@ -1,0 +1,2 @@
+# Preserve the locked Loki Git revision when its parent declares an unpinned URL.
+python-logging-loki @ git+https://github.com/waylayio/python-logging-loki.git@3ce43caaeca530f17102bc2293ba479a3863f48b

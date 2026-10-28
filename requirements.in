@@ -2,6 +2,7 @@
 # recompile the locked requirements.txt with:
 #
 #   uv pip compile requirements.in --override requirements-private.txt \
+#     --override requirements-overrides.txt \
 #     -c requirements.txt --generate-hashes --python-version 3.13 \
 #     -o requirements.full.txt
 #   grep -vE '^(byteforge-aegis-models|byteforge-loki-logging) @ git\+' \
@@ -16,7 +17,11 @@
 # 13 unrelated pins, gunicorn among them, across a major version. Anchoring to
 # the current lock means a recompile adds only what the new entry needs.
 #
-# Versions still move deliberately with --upgrade or --upgrade-package NAME.
+# For a targeted upgrade, copy the lock to requirements.constraints.txt and
+# remove only that package block from the copy (including its hashes). Compile
+# with -c requirements.constraints.txt and --upgrade-package NAME, then delete
+# the temporary constraints file. A hard -c pin cannot be overridden by
+# --upgrade-package. Never use a blanket --upgrade.
 #
 # First-party libs (byteforge-aegis-models, byteforge-loki-logging) are
 # listed here so the compile locks their third-party sub-tree, but they are
@@ -31,6 +36,8 @@ python-dotenv
 email-validator
 marshmallow
 requests
+# Minimum CA bundle after the emSign incident (PSF advisory, 2026-10-20).
+certifi>=2026.10.19
 gunicorn
 
 byteforge-aegis-models @ git+https://github.com/jmazzahacks/byteforge-aegis-models.git

@@ -1,15 +1,16 @@
-FROM python:3.13-slim
+FROM python:3.13.18-slim
 
 # uv binary, pinned by immutable digest — not just the version tag. A tag can
 # be re-pushed to point at a different (malicious) binary; the digest cannot.
 # This binary installs everything else, so it is the root of trust for the
 # build. To upgrade uv, bump BOTH the tag and the digest.
-COPY --from=ghcr.io/astral-sh/uv:0.9.28@sha256:59240a65d6b57e6c507429b45f01b8f2c7c0bbeee0fb697c41a39c6a8e3a4cfb /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.4@sha256:9f130421e930bfbdc563c00740466603f8723158e90297d07957c2294640262b /uv /uvx /bin/
 
 WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
+    ca-certificates \
     gcc \
     git \
     postgresql-client \

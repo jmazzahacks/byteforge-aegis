@@ -721,6 +721,23 @@ The `docker-compose.yml` defines two services:
 
 ### Building and Publishing Images
 
+For certificate-security updates, rebuild with both `--pull` and `--no-cache`:
+`--pull` refreshes the base image, while `--no-cache` reruns the system
+certificate installation. The local `build-publish.sh` is gitignored; ensure
+its Docker build command includes both flags before publishing a security release.
+A build-only command (no push or deployment) is:
+
+```bash
+docker build --pull --no-cache --platform linux/amd64 \
+  --secret id=cr_pat,env=CR_PAT -t byteforge-aegis:security-review .
+```
+
+The emSign remediation uses certifi 2026.10.19 or newer, Python 3.13.18,
+uv 0.13.4, and refreshed system certificates. Verify the built image's system,
+certifi, and pip CA bundles no longer include `emSign ECC Root CA - G3` before
+publishing; the other emSign roots remain valid. See the
+[Python security advisory](https://discuss.python.org/t/information-for-python-users-regarding-emudhra-emsign-ca-certificate-security-incident/109576).
+
 The `build-publish.sh` script provides automated versioning and publishing to container registries.
 
 **Standard build** (increments version, uses cache):
