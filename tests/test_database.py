@@ -326,6 +326,7 @@ def _make_db_with_mocked_pool(connections):
     db.connection_pool = MagicMock()
     db.connection_pool.getconn.side_effect = list(connections)
     db._pool_initialized = True
+    db.max_conn = 5
     return db
 
 
@@ -519,7 +520,7 @@ def test_dead_conn_on_first_checkout_retries_and_recovers():
 
 
 def test_pool_full_of_corpses_raises_after_max_retries():
-    corpses = [_dead_conn() for _ in range(MAX_HEALTH_RETRIES)]
+    corpses = [_dead_conn() for _ in range(5 + MAX_HEALTH_RETRIES)]
     db = _make_db_with_mocked_pool(corpses)
 
     with pytest.raises(RuntimeError) as excinfo:
@@ -527,7 +528,7 @@ def test_pool_full_of_corpses_raises_after_max_retries():
             pass
 
     assert isinstance(excinfo.value.__cause__, psycopg2.OperationalError)
-    assert db.connection_pool.putconn.call_count == MAX_HEALTH_RETRIES
+    assert db.connection_pool.putconn.call_count == 5 + MAX_HEALTH_RETRIES
 
 
 def test_mid_flight_death_discards_conn_with_close():
@@ -604,3 +605,80 @@ def test_keyboard_interrupt_during_rollback_propagates():
         with db.get_connection() as conn:
             conn.rollback.side_effect = KeyboardInterrupt()
             raise ValueError("app error mid-transaction")
+
+    db.connection_pool.putconn.assert_called_once_with(alive, close=True)
+
+
+@pytest.mark.parametrize('pool_size', [3, 5])
+def test_stale_pool_opens_fresh_connection(pool_size: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Use the real pool's idle-list behavior, not a mocked checkout sequence."""
+    dead = [_dead_conn() for _ in range(pool_size)]
+    alive = _alive_conn()
+    connect = MagicMock(side_effect=[*dead, alive])
+    monkeypatch.setattr(psycopg2, 'connect', connect)
+    pool = psycopg2.pool.ThreadedConnectionPool(pool_size, 5)
+    db = _make_db_with_mocked_pool([])
+    db.connection_pool = pool
+    delays = []
+
+    def pause(seconds: float) -> None:
+        # A retry must release its slot before sleeping.
+        assert not pool._used
+        delays.append(seconds)
+
+    monkeypatch.setattr('database.time.sleep', pause)
+    try:
+        with db.get_connection() as conn:
+            assert conn is alive
+        assert connect.call_count == pool_size + 1
+        assert len(delays) == pool_size
+        assert delays[:2] == [0.1, 0.2]
+        assert max(delays) <= 0.4
+        for conn in dead:
+            conn.close.assert_called_once()
+    finally:
+        pool.closeall()
+        db.connection_pool = None
+
+
+def test_fresh_connection_outage_has_bounded_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    db = _make_db_with_mocked_pool([])
+    error = psycopg2.OperationalError('unavailable')
+    db.connection_pool.getconn.side_effect = error
+    pause = MagicMock()
+    monkeypatch.setattr('database.time.sleep', pause)
+    with pytest.raises(RuntimeError) as raised:
+        with db.get_connection():
+            pytest.fail('An unavailable database must not yield a connection')
+    assert raised.value.__cause__ is error
+    assert db.connection_pool.getconn.call_count == MAX_HEALTH_RETRIES
+    assert [call.args[0] for call in pause.call_args_list] == [0.1, 0.2]
+    db.connection_pool.putconn.assert_not_called()
+
+
+def test_transaction_failure_never_replays_checkout(monkeypatch: pytest.MonkeyPatch) -> None:
+    alive = _alive_conn()
+    db = _make_db_with_mocked_pool([alive])
+    pause = MagicMock()
+    monkeypatch.setattr('database.time.sleep', pause)
+    with pytest.raises(psycopg2.OperationalError):
+        with db.get_connection():
+            raise psycopg2.OperationalError('transaction interrupted')
+    assert db.connection_pool.getconn.call_count == 1
+    pause.assert_not_called()
+
+
+def test_stale_eviction_preserves_fresh_retry_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    dead = [_dead_conn() for _ in range(5)]
+    alive = _alive_conn()
+    db = _make_db_with_mocked_pool([
+        *dead, psycopg2.OperationalError('reconnecting'),
+        psycopg2.OperationalError('reconnecting'), alive,
+    ])
+    pause = MagicMock()
+    monkeypatch.setattr('database.time.sleep', pause)
+    with db.get_connection() as conn:
+        assert conn is alive
+    assert db.connection_pool.getconn.call_count == 8
+    assert pause.call_count == 7
+    assert max(call.args[0] for call in pause.call_args_list) <= 0.4

@@ -1,5 +1,6 @@
 import logging
 import threading
+import time
 
 import psycopg2
 from psycopg2 import pool
@@ -22,9 +23,8 @@ logger = logging.getLogger(__name__)
 # Errors that mean "this socket is unusable — discard, do not recycle."
 _DEAD_CONN_ERRORS = (psycopg2.OperationalError, psycopg2.InterfaceError)
 
-# How many times to retry checkout when pre-ping fails. Enough to drain
-# a pool full of corpses after Postgres restarts; not so high that we
-# spin forever if Postgres is genuinely down.
+# Connection failures get a bounded retry budget in addition to stale
+# socket eviction. Eviction alone must not exhaust recovery attempts.
 MAX_HEALTH_RETRIES = 3
 
 
@@ -220,14 +220,61 @@ class DatabaseManager:
             except Exception:
                 logger.exception("Pool putback fallback conn.close failed; dropping conn reference")
 
+    def _acquire_healthy_connection(self) -> connection:
+        """Evict at most one pool's worth of stale sockets, then bound retries.
+
+        All checkouts still go through the thread-safe pool, preserving its
+        capacity and other borrowers. Never close or replace the whole pool.
+        A concurrent borrower can change which sockets we see, so this is a
+        bounded recovery opportunity, not a guarantee during an outage.
+        """
+        stale_remaining = self.max_conn
+        failures = 0
+        attempts = 0
+        last_err = None
+        while failures < MAX_HEALTH_RETRIES:
+            if attempts:
+                time.sleep(min(0.1 * (2 ** min(attempts - 1, 2)), 0.4))
+            attempts += 1
+            try:
+                conn = self.connection_pool.getconn()
+            except Exception as exc:
+                if not self._is_dead_conn_error(None, exc):
+                    raise  # Pool exhaustion and programming errors are not retries.
+                last_err = exc
+                failures += 1
+                logger.warning("DB pool connection failed (retry %s/%s): %s",
+                               failures, MAX_HEALTH_RETRIES, exc)
+                continue
+            try:
+                self._check_alive(conn)
+            except BaseException as exc:
+                # Release the slot even for interrupts; sleep only after release.
+                self._safe_putback(conn, close=True)
+                if not isinstance(exc, Exception):
+                    raise
+                # Even a bare DatabaseError can signal EOF during pre-ping.
+                last_err = exc
+                if stale_remaining:
+                    stale_remaining -= 1
+                else:
+                    failures += 1
+                logger.warning("DB checkout pre-ping failed (checkout %s): %s",
+                               attempts, exc)
+                continue
+            return conn
+        raise RuntimeError(
+            f"Could not acquire a healthy DB connection after {attempts} attempts"
+        ) from last_err
+
     @contextmanager
     def get_connection(self) -> Generator:
         """
         Context manager yielding a healthy pooled connection.
 
         Pre-pings before yielding. If the pool hands out a dead conn,
-        discards it (so the pool refills with a fresh socket) and retries
-        up to MAX_HEALTH_RETRIES times. Mid-flight, truly-dead sockets
+        discards it, allowing one pool's worth of stale evictions plus
+        MAX_HEALTH_RETRIES failures with capped backoff. Mid-flight, dead sockets
         (rollback fails or `conn.closed != 0`) are discarded with
         close=True; app-level errors on healthy conns (e.g.
         SerializationFailure) recycle into the pool to avoid TCP+auth churn.
@@ -240,103 +287,46 @@ class DatabaseManager:
         if not self.connection_pool:
             raise Exception("Connection pool not initialized")
 
-        last_err = None
-        for attempt in range(MAX_HEALTH_RETRIES):
-            conn = None
-            # Checkout and pre-ping are separate arms because they fail for
-            # different reasons and only one of them can be classified.
+        conn = self._acquire_healthy_connection()
+        # Healthy conn — yield it. Mid-flight handling decides
+        # discard-vs-recycle without trusting the exception class
+        # alone (SerializationFailure / DeadlockDetected all inherit
+        # from OperationalError but the conn is alive).
+        try:
+            yield conn
+        except BaseException:
+            conn_dead = False
             try:
-                conn = self.connection_pool.getconn()
-            except Exception as e:
-                # Nothing to hand back: the assignment never ran, so conn is
-                # still None and there is no socket to discard. That also
-                # means `closed` cannot be consulted here, so this reduces to
-                # "any DatabaseError means the pool could not reach the
-                # database — retry; anything else, such as
-                # PoolError('exhausted') which is NOT a DatabaseError
-                # subclass, is a condition retrying would only repeat —
-                # propagate."
-                if self._is_dead_conn_error(None, e):
-                    last_err = e
-                    logger.warning("DB pool getconn failed (attempt %s/%s): %s",
-                                   attempt + 1, MAX_HEALTH_RETRIES, e)
-                    continue
-                raise
-
-            try:
-                self._check_alive(conn)
-            except BaseException as e:
-                # BaseException, not Exception: by this point the conn is
-                # checked OUT of the pool, so whatever unwinds through here
-                # must hand it back first. A gevent/eventlet Timeout — or a
-                # Ctrl-C — derives from BaseException and fires exactly where
-                # a pre-ping on a stale socket blocks, so catching only
-                # Exception would strand one pooled slot per occurrence until
-                # the pool is exhausted and the worker wedges. Discard first,
-                # then decide; the mid-flight handler below is BaseException
-                # for the same reason.
-                self._safe_putback(conn, close=True)
-                if not isinstance(e, Exception):
-                    raise
-
-                # `SELECT 1` has no legitimate non-dead failure mode, so the
-                # exception class is NOT consulted beyond that — any ordinary
-                # exception means retry. Classifying this arm is what broke:
-                # psycopg2 can raise the bare DatabaseError parent (not
-                # OperationalError) when it detects EOF via PQgetResult()
-                # returning NULL before PQstatus flips conn.closed, so
-                # _is_dead_conn_error scored a genuinely dead socket as alive
-                # and the error escaped as a raw 500 — a broken login for the
-                # end user. Retrying a hypothetical live-conn failure costs
-                # two wasted pre-pings; misclassifying a dead one costs a
-                # request.
-                last_err = e
-                logger.warning("DB checkout pre-ping failed (attempt %s/%s): %s",
-                               attempt + 1, MAX_HEALTH_RETRIES, e)
-                continue
-
-            # Healthy conn — yield it. Mid-flight handling decides
-            # discard-vs-recycle without trusting the exception class
-            # alone (SerializationFailure / DeadlockDetected all inherit
-            # from OperationalError but the conn is alive).
-            try:
-                yield conn
+                conn.rollback()
+            except _DEAD_CONN_ERRORS:
+                conn_dead = True
+            except Exception:
+                # Rollback failed for an unexpected reason. The socket
+                # may still look open, but transaction state is unknown.
+                # Narrowed to Exception (not BaseException) so a signal
+                # raised mid-rollback (KeyboardInterrupt / SystemExit)
+                # propagates instead of being silently swallowed by the
+                # outer bare `raise`, which only re-raises the caller's
+                # original exception.
+                logger.exception(
+                    "Unexpected DB rollback failure during mid-flight "
+                    "cleanup; discarding conn"
+                )
+                conn_dead = True
             except BaseException:
-                conn_dead = False
-                try:
-                    conn.rollback()
-                except _DEAD_CONN_ERRORS:
-                    conn_dead = True
-                except Exception:
-                    # Rollback failed for an unexpected reason. The socket
-                    # may still look open, but transaction state is unknown.
-                    # Narrowed to Exception (not BaseException) so a signal
-                    # raised mid-rollback (KeyboardInterrupt / SystemExit)
-                    # propagates instead of being silently swallowed by the
-                    # outer bare `raise`, which only re-raises the caller's
-                    # original exception.
-                    logger.exception(
-                        "Unexpected DB rollback failure during mid-flight "
-                        "cleanup; discarding conn"
-                    )
-                    conn_dead = True
-                if not conn_dead:
-                    conn_dead = getattr(conn, "closed", 0) != 0
-                self._safe_putback(conn, close=conn_dead)
+                # Preserve interrupts while releasing the checked-out slot.
+                self._safe_putback(conn, close=True)
                 raise
-            else:
-                # Symmetry with the exception branch: even on a clean exit
-                # the socket may have been closed underneath us, so discard
-                # rather than recycle a dead conn back into the pool.
+            if not conn_dead:
                 conn_dead = getattr(conn, "closed", 0) != 0
-                self._safe_putback(conn, close=conn_dead)
-            return
-
-        # Retries exhausted.
-        raise RuntimeError(
-            f"Could not acquire a healthy DB connection after "
-            f"{MAX_HEALTH_RETRIES} attempts"
-        ) from last_err
+            self._safe_putback(conn, close=conn_dead)
+            raise
+        else:
+            # Symmetry with the exception branch: even on a clean exit
+            # the socket may have been closed underneath us, so discard
+            # rather than recycle a dead conn back into the pool.
+            conn_dead = getattr(conn, "closed", 0) != 0
+            self._safe_putback(conn, close=conn_dead)
 
     @contextmanager
     def get_cursor(self, commit: bool = False) -> Generator:
